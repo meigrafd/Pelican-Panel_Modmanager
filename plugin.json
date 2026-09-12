@@ -1,7 +1,7 @@
 {
     "id": "mod-auto-restart",
     "name": "Mod Watch & Auto-Restart",
-    "author": "meigrafd, nach pz-mod-manager von WildBrianNL",
+    "author": "meigrafd",
     "version": "0.3.0",
     "description": "Verwaltet Mods von Thunderstore und Hexium auf Steam-Spielservern und startet den Server automatisch neu, wenn eine Mod oder das Spiel aktualisiert wurde. Mit Abhaengigkeitsaufloesung, Kompatibilitaetshinweisen, Vorwarnung fuer Spieler, Backup und Erfolgskontrolle.",
     "category": "plugin",
