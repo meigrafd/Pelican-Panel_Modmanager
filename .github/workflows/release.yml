@@ -1,0 +1,93 @@
+# Baut bei jeder neuen Version ein fertiges Plugin-Zip und aktualisiert
+# update.json.
+#
+# Damit ist der Update-Weg geschlossen: neue Version veroeffentlichen -> Action
+# baut das Zip und haengt es ans Release -> update.json zeigt darauf -> Pelican
+# sieht beim naechsten Blick auf die Plugin-Liste eine neue Version und bietet
+# einen Update-Knopf an. Niemand muss mehr herausfinden, welche Dateien sich
+# geaendert haben.
+#
+# Zwei Ausloeser, weil es zwei Arbeitsweisen gibt:
+#
+#   push mit Tag   fuer alle, die lokal git benutzen
+#   release        fuer alle, die ueber die GitHub-Weboberflaeche arbeiten -
+#                  "Draft a new release" legt den Tag mit an
+#
+# Loesen beide gleichzeitig aus, bricht der zweite Lauf per concurrency ab,
+# statt dasselbe Release zweimal zu bauen.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  release:
+    types: [published]
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: PHP bereitstellen
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring
+
+      - name: Pruefungen
+        run: |
+          chmod +x lint.sh
+          ./lint.sh
+
+      - name: Version aus plugin.json gegen den Tag pruefen
+        run: |
+          # Ein Tag, der nicht zur Version in plugin.json passt, ergibt ein
+          # Release, das Pelican nie als Update erkennt - die Panel-Seite
+          # vergleicht die Version im Plugin, nicht den Tag.
+          VERSION=$(python3 -c "import json;print(json.load(open('plugin.json'))['version'])")
+          TAG="${GITHUB_REF_NAME#v}"
+          if [ "$VERSION" != "$TAG" ]; then
+            echo "plugin.json sagt $VERSION, der Tag sagt $TAG."
+            echo "Version in plugin.json anpassen oder den Tag korrigieren."
+            exit 1
+          fi
+
+      - name: Zip bauen
+        run: |
+          # Der Ordner im Zip MUSS so heissen wie die id in plugin.json,
+          # sonst laedt Pelican das Plugin nicht - ohne Fehlermeldung.
+          mkdir -p build/mod-auto-restart
+          rsync -a --exclude='.git' --exclude='.github' --exclude='build' \
+                --exclude='tests' --exclude='check.py' --exclude='lint.sh' \
+                --exclude='*.zip' \
+                ./ build/mod-auto-restart/
+          cd build && zip -rq ../mod-auto-restart.zip mod-auto-restart
+
+      - name: Zip ans Release haengen
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: mod-auto-restart.zip
+          generate_release_notes: true
+
+      - name: update.json auf die neue Version zeigen lassen
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/mod-auto-restart.zip"
+          printf '{\n  "*": {\n    "version": "%s",\n    "download_url": "%s"\n  }\n}\n' "$VERSION" "$URL" > update.json
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add update.json
+          git commit -m "update.json auf ${VERSION}" || exit 0
+          # Auf den Standardzweig, nicht auf den Tag: Pelican holt update.json
+          # von raw.githubusercontent.com aus dem Zweig, nicht aus dem Release.
+          git push origin HEAD:${{ github.event.repository.default_branch }}
