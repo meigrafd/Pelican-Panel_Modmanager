@@ -4,6 +4,7 @@
 # bleibt.
 *.zip
 build/
+CLAUDE.md
 
 # Pelican traegt in der INSTALLIERTEN Kopie einen meta-Block in plugin.json ein
 # (installiert ja/nein, Ladereihenfolge). Der gehoert in die Installation, nicht

@@ -14,7 +14,48 @@ später funktioniert.
 | `src/`, `config/`, `lang/`, `resources/` fehlen | Das ist das eigentliche Plugin. |
 | `DEIN-GITHUB-NAME` steht noch in den Dateien | Pelican sucht Updates dann an einer Adresse, die es nicht gibt. |
 
-## Der Weg
+## Der Weg über die Weboberfläche (ohne git)
+
+GitHub kann per Ziehen-und-Ablegen keine Ordner hochladen, deren Name mit einem
+Punkt beginnt — dein Dateimanager blendet sie meist gar nicht erst ein. Genau
+deshalb fehlen `.github` und `.gitignore` so leicht.
+
+Der Ausweg: solche Dateien nicht hochladen, sondern **anlegen**. Dabei erzeugt
+ein Schrägstrich im Dateinamen automatisch die Ordner.
+
+**`.github/workflows/release.yml` anlegen**
+
+1. Im Repository auf **Add file** → **Create new file**
+2. In das Namensfeld oben genau das hier tippen:
+   `.github/workflows/release.yml`
+   Beim Tippen der Schrägstriche zerfällt das Feld in Ordner — das ist richtig so.
+3. Inhalt aus der Datei gleichen Namens einfügen
+4. Unten auf **Commit changes**
+
+**`.gitignore` anlegen**
+
+Dasselbe noch einmal, Name: `.gitignore`
+
+**Alles andere** (Ordner `src`, `config`, `lang`, `resources`, `tests` und die
+Dateien im Wurzelverzeichnis) lässt sich normal per **Add file** → **Upload
+files** hochladen. Ordner können dabei direkt ins Fenster gezogen werden.
+
+## Veröffentlichen über die Weboberfläche
+
+1. Im Repository rechts auf **Releases** → **Draft a new release**
+2. Bei **Choose a tag** `v0.3.0` eintippen und auf
+   **Create new tag: v0.3.0 on publish** klicken
+3. Titel eintragen, zum Beispiel `0.3.0`
+4. **Publish release**
+
+Die Action startet daraufhin von selbst, prüft, baut das Zip, hängt es an genau
+dieses Release und schreibt `update.json` um.
+
+Wichtig: Die Version in `plugin.json` und der Tag müssen übereinstimmen — hier
+also beide `0.3.0`. Passt es nicht, bricht die Action mit einer klaren Meldung
+ab, statt ein Release zu bauen, das Pelican nie als Update erkennt.
+
+## Der Weg mit git
 
 **1.** Zip herunterladen und entpacken. Darin liegt ein Ordner
 `mod-auto-restart` mit allem.

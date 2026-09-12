@@ -73,6 +73,19 @@ class AutoRestart extends Page
 
     public string $modsNote = '';
 
+    /**
+     * Abbildung Formularfeld -> echter Mod-Name.
+     *
+     * Filament baut aus einem Punkt im Feldnamen eine Verschachtelung. Paketnamen
+     * duerfen aber Punkte enthalten, und dann landete die Auswahl in einem
+     * Unterschluessel statt beim Mod. Deshalb ein entschaerfter Name im Formular
+     * und diese Abbildung zurueck - nicht schoen, aber der Alternative
+     * (Mod-Namen einschraenken) fehlt die Grundlage.
+     *
+     * @var array<string,string>
+     */
+    public array $modKeys = [];
+
     public bool $eggAutoUpdate = true;
 
     public bool $flagWarning = false;
@@ -270,6 +283,13 @@ class AutoRestart extends Page
                             ->helperText(trans('mar::messages.settings.source_hint'))
                             ->visible(fn () => count($this->sources()) > 1)
                             ->disabled(!$writable),
+
+                        TextEntry::make('source_only')
+                            ->hiddenLabel()
+                            ->columnSpanFull()
+                            ->visible(fn () => count($this->sources()) === 1)
+                            ->state(fn () => trans('mar::messages.settings.source_only',
+                                ['name' => array_key_first($this->sources())])),
                     ]),
 
                 Toggle::make('enabled')
@@ -513,16 +533,11 @@ class AutoRestart extends Page
                             ->action('clearPlan'),
                     ]),
 
-                TextEntry::make('mod_list')
-                    ->hiddenLabel()
+                Fieldset::make(trans('mar::messages.mods.installed'))
                     ->columnSpanFull()
+                    ->columns(1)
                     ->visible(fn () => (bool) $this->mods)
-                    ->listWithLineBreaks()
-                    ->state(fn () => $this->modLines()),
-
-                Actions::make($this->modActions())
-                    ->columnSpanFull()
-                    ->visible(fn () => $this->canWrite() && (bool) $this->mods),
+                    ->schema($this->modRows()),
             ]);
     }
 
@@ -569,39 +584,85 @@ class AutoRestart extends Page
         return $lines ?: [trans('mar::messages.add.nothing')];
     }
 
-    /** @return array<int,string> */
-    private function modLines(): array
+    /**
+     * Eine Zeile je installiertem Mod: Name, Version, Quelle, geprueft, loeschen.
+     *
+     * Als Grid statt als Tabelle, weil die Zeilen Eingabefelder enthalten - die
+     * Quellenauswahl gehoert zum Formular und muss mitgespeichert werden. Ein
+     * Grid mit fester Spaltenzahl richtet die Zeilen genauso aus.
+     *
+     * @return array<int,Grid>
+     */
+    private function modRows(): array
     {
-        $lines = [];
-        foreach ($this->mods as $mod) {
-            $line = $mod['full_name'] . '  ' . ($mod['version'] ?: '—');
-            if (!$mod['tracked']) {
-                $line .= '  · ' . trans('mar::messages.mods.untracked');
-            }
-            $lines[] = $line;
-        }
+        $multi = count($this->sources()) > 1;
+        $rows = [];
 
-        return $lines;
-    }
-
-    /** @return array<int,Action> */
-    private function modActions(): array
-    {
-        $actions = [];
         foreach ($this->mods as $i => $mod) {
             $name = (string) $mod['full_name'];
-            $actions[] = Action::make('remove_' . $i)
-                ->label(trans('mar::messages.mods.remove_named', ['mod' => $name]))
-                ->icon('tabler-trash')
-                ->color('danger')
-                ->size('sm')
-                ->link()
-                ->requiresConfirmation()
-                ->modalDescription(trans('mar::messages.mods.remove_confirm', ['mod' => $name]))
-                ->action(fn () => $this->remove($name));
+            $key = $this->modKey($name);
+
+            $cells = [
+                TextEntry::make('mod_name_' . $i)
+                    ->label($i === 0 ? trans('mar::messages.mods.name') : '')
+                    ->state($name)
+                    ->columnSpan(2),
+
+                TextEntry::make('mod_version_' . $i)
+                    ->label($i === 0 ? trans('mar::messages.mods.version') : '')
+                    ->state($mod['version'] ?: '—'),
+
+                TextEntry::make('mod_tracked_' . $i)
+                    ->label($i === 0 ? trans('mar::messages.mods.tracked') : '')
+                    ->state($mod['tracked'] ? trans('mar::messages.mods.yes') : trans('mar::messages.mods.no'))
+                    // Kein Autor im Ordnernamen: eine geratene Zuordnung wuerde
+                    // ewig ein Update melden, das nie ankommt.
+                    ->color($mod['tracked'] ? 'success' : 'gray')
+                    ->tooltip($mod['tracked'] ? null : trans('mar::messages.mods.untracked')),
+            ];
+
+            if ($multi) {
+                $cells[] = Select::make('mod_sources.' . $key)
+                    ->label($i === 0 ? trans('mar::messages.mods.source') : '')
+                    ->options(array_combine(array_keys($this->sources()), array_keys($this->sources())))
+                    // Leer heisst: die globale Wahl oben gilt. Das ist die
+                    // Vorgabe, keine fehlende Angabe.
+                    ->placeholder(trans('mar::messages.mods.source_global'))
+                    ->disabled(fn () => !$this->canWrite() || !$mod['tracked']);
+            }
+
+            $cells[] = Actions::make([
+                Action::make('remove_' . $i)
+                    ->label(trans('mar::messages.mods.remove'))
+                    ->icon('tabler-trash')
+                    ->iconButton()
+                    ->color('danger')
+                    ->visible(fn () => $this->canWrite())
+                    ->requiresConfirmation()
+                    ->modalHeading(trans('mar::messages.mods.remove_named', ['mod' => $name]))
+                    ->modalDescription(trans('mar::messages.mods.remove_confirm', ['mod' => $name]))
+                    ->action(fn () => $this->remove($name)),
+            ])->label($i === 0 ? ' ' : '');
+
+            $rows[] = Grid::make(['default' => 2, 'md' => $multi ? 6 : 5])
+                ->schema($cells);
         }
 
-        return $actions;
+        return $rows;
+    }
+
+    /**
+     * Entschaerfter Feldname fuer einen Mod.
+     *
+     * Ein Punkt im Namen wuerde Filament eine Verschachtelung bauen lassen und
+     * die Auswahl im falschen Schluessel ablegen.
+     */
+    private function modKey(string $fullName): string
+    {
+        $key = str_replace('.', '_DOT_', $fullName);
+        $this->modKeys[$key] = $fullName;
+
+        return $key;
     }
 
     /** @return array<int,string> */
@@ -733,6 +794,15 @@ class AutoRestart extends Page
         $auto['backup'] = ($auto['backup'] ?? true) ? 1 : 0;
         $auto['add_input'] = '';
 
+        // Echte Mod-Namen in entschaerfte Feldnamen uebersetzen.
+        $this->modKeys = [];
+        $perMod = [];
+        foreach ($this->mods as $mod) {
+            $key = $this->modKey((string) $mod['full_name']);
+            $perMod[$key] = $auto['mod_sources'][$mod['full_name']] ?? null;
+        }
+        $auto['mod_sources'] = $perMod;
+
         $this->form->fill($auto);
     }
 
@@ -744,6 +814,20 @@ class AutoRestart extends Page
         $data['check_mods'] = ($data['watch'] ?? 'both') !== 'game';
         $data['check_game'] = ($data['watch'] ?? 'both') !== 'mods';
         $data['backup'] = (bool) ($data['backup'] ?? true);
+
+        // Entschaerfte Feldnamen zurueck in echte Mod-Namen. Leere Auswahl
+        // heisst "wie oben" und wird verworfen, statt als leerer Quellenname
+        // gespeichert zu werden - sonst sammelt die Datei mit jedem Speichern
+        // einen Eintrag pro Mod an, den niemand gesetzt hat.
+        $perMod = [];
+        foreach ((array) ($data['mod_sources'] ?? []) as $key => $source) {
+            $name = $this->modKeys[$key] ?? null;
+            if ($name !== null && is_string($source) && trim($source) !== '') {
+                $perMod[$name] = $source;
+            }
+        }
+        $data['mod_sources'] = $perMod;
+
         unset($data['watch'], $data['add_input']);
 
         return $data;

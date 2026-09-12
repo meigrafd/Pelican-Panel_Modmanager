@@ -1,5 +1,39 @@
 # Änderungen
 
+## 0.4.1
+
+Beim Umbau auf Filament-Bausteine in 0.4.0 sind zwei Dinge stillschweigend
+weggefallen. Beides ist zurück.
+
+- **Quellenauswahl pro Mod** war verschwunden. Sie ist wieder da, jetzt als
+  echtes Auswahlfeld in der Mod-Zeile. Leer heißt weiterhin „wie oben".
+- **Die Mod-Tabelle** war zu einer flachen Textliste geworden. Wieder mit
+  Spalten: Mod, Version, Quelle, geprüft, Löschen.
+- Hinweis, wenn ein Spiel nur eine Mod-Quelle hat, ist wieder da.
+- `check.py` prüft jetzt auf verwaiste Übersetzungsschlüssel. Genau dieser Test
+  hat den Verlust gefunden: Eine Funktion, die aus der Oberfläche verschwindet,
+  lässt ihre Übersetzung zurück — ohne Fehler und ohne fehlgeschlagenen Test.
+
+## 0.4.0
+
+Die Oberfläche neu gebaut — aus Filament-Bausteinen statt aus eigenem HTML.
+
+Vorher waren die Formularfelder handgeschriebenes HTML mit Tailwind-Klassen. Das
+sieht im Quelltext richtig aus, wirkt aber nicht: Ein Filament-Panel kompiliert
+sein CSS vorab und nimmt nur die Klassen auf, die es selbst benutzt. Klassen, die
+nur in einem Plugin vorkommen, fehlen darin. Die Folge war eine Seite, auf der
+alle Felder ungestylt untereinander standen — ohne dass irgendwo ein Fehler
+auftauchte.
+
+- Die ganze Seite ist jetzt ein Filament-Schema: `Section`, `Fieldset`, `Grid`,
+  `Select`, `TextInput`, `Toggle`, `TextEntry`, `Action`. Spalten, Abstände,
+  Dunkelmodus und Zusammenklappen kommen damit vom Panel.
+- Knöpfe sind Filament-Actions mit Bestätigungsdialog statt `wire:confirm`.
+- Das Blade-Gerüst enthält nur noch die Seitenkomponente und das Formular.
+- `check.py` wacht darüber: es lehnt eigenes Formular-HTML im Gerüst ab und
+  prüft, dass jedes `->action()` eine Methode hat und jede gespeicherte
+  Einstellung ein Eingabefeld — und umgekehrt.
+
 ## 0.3.0
 
 Mod-Verwaltung dazu. Damit deckt das Plugin den ganzen Weg ab: Mod finden,

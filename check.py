@@ -46,6 +46,15 @@ def main():
     blade = (ROOT / "resources/views/auto-restart.blade.php").read_text()
     page = (ROOT / "src/Filament/Server/Pages/AutoRestart.php").read_text()
 
+    # Die Seite wird als Filament-Schema gebaut, nicht als eigenes HTML. Ein
+    # Rueckfall auf handgeschriebene Tailwind-Klassen faellt optisch auf, aber
+    # erst am fertigen Panel - deshalb hier eine harte Grenze: das Geruest darf
+    # ausser der Seitenkomponente und dem Formular nichts enthalten.
+    stray_html = re.findall(r"<(input|select|table|textarea|button)\b", blade)
+    check(not stray_html, "das Blade-Geruest enthaelt kein eigenes Formular-HTML",
+          ", ".join(sorted(set(stray_html))))
+    check("{{ $this->form }}" in blade, "das Blade-Geruest rendert das Schema")
+
     # Nur feste Schluessel. Was per Verkettung gebaut wird, wird unten ueber
     # das Praefix geprueft - das Suffix steht nicht im Quelltext.
     used = set(re.findall(r"trans(?:_choice)?\('mar::messages\.([a-z_.]+)'\)", blade + page))
@@ -54,45 +63,52 @@ def main():
     check(not missing, "jeder feste Uebersetzungsschluessel existiert (%d)" % len(used),
           ", ".join(missing[:6]))
 
+    # Verwaiste Schluessel: eine Funktion, die aus der Oberflaeche verschwindet,
+    # hinterlaesst ihre Uebersetzung. Beim Umbau auf Filament-Bausteine sind auf
+    # diese Weise die Quellenauswahl pro Mod und die Mod-Tabelle stillschweigend
+    # weggefallen - ohne Fehler, ohne fehlgeschlagenen Test.
+    all_src = (page + blade
+               + "".join(p.read_text() for p in (ROOT / "src").rglob("*.php")))
+    used_all = set(re.findall(r"mar::messages\.([a-z_.]+)", all_src))
+    orphans = sorted(k for k in de
+                     if k not in used_all
+                     and not any(k.startswith(pre) for pre in
+                                 re.findall(r"mar::messages\.([a-z_.]+\.)'\s*\.", all_src)))
+    check(not orphans, "kein Uebersetzungsschluessel ist verwaist (%d)" % len(de),
+          ", ".join(orphans[:8]))
+
     # Dynamische Schluessel: 'mar::messages.outcome.' . $outcome
     prefixes = set(re.findall(r"'mar::messages\.([a-z_.]+\.)'\s*\.", blade + page))
     for prefix in sorted(prefixes):
         check(any(k.startswith(prefix) for k in de), "Praefix %s hat Uebersetzungen" % prefix)
 
-    # Jedes wire:click-Ziel muss eine oeffentliche Methode der Seite sein.
+    # Jedes ->action('name') muss eine oeffentliche Methode der Seite sein.
+    # Ein Tippfehler wirft keine Ausnahme beim Rendern - der Knopf erscheint
+    # und tut beim Klick nichts.
     methods = set(re.findall(r"public function (\w+)\(", page))
-    # Auch Aufrufe MIT Argument erfassen: wire:click="remove('Autor-Mod')".
-    # Der frueher benutzte Ausdruck endete am Methodennamen und haette solche
-    # Aufrufe zwar mitgezaehlt, aber nur zufaellig - ein Tippfehler im Namen
-    # waere durchgerutscht, wenn er auf ein Praefix einer echten Methode fiel.
-    called = set(re.findall(r'wire:(?:click|keydown\.enter|poll\.\d+s)="(\w+)\s*(?:\(|")', blade))
+    called = set(re.findall(r"->action\('(\w+)'\)", page))
     ghosts = sorted(called - methods)
-    check(not ghosts, "jedes wire:click existiert als Methode (%d)" % len(called), ", ".join(ghosts))
-
-    # Livewire bindet daran; ein Tippfehler bindet still ins Leere.
-    props = set(re.findall(r"public (?:\w+ )?\$(\w+)", page))
-    bound = set(re.findall(r'wire:model(?:\.[\w.]+)?="(\w+)', blade))
-    unbound = sorted(bound - props)
-    check(not unbound, "jedes wire:model existiert als Property (%d)" % len(bound), ", ".join(unbound))
-
-    # Livewire haengt wire:id an das ERSTE Element, das die Ansicht ausgibt.
-    # Alles, was vor der Seitenkomponente gerendert wird, wird zur Wurzel, und
-    # jedes wire:model und wire:click der echten Seite landet ausserhalb davon
-    # und hoert still auf zu funktionieren.
-    head = blade[: blade.index("<x-filament-panels::page>")]
-    stray = re.sub(r"@php.*?@endphp|\{\{--.*?--\}\}|\s", "", head, flags=re.S)
-    check(not stray, "nichts rendert vor der Wurzelkomponente", "gefunden: " + stray[:60])
+    check(not ghosts, "jedes ->action() existiert als Methode (%d)" % len(called), ", ".join(ghosts))
 
     # Formular und Speicher muessen sich ueber die Feldnamen einig sein, sonst
     # landet ein gespeicherter Wert in einem Schluessel, den niemand liest.
     store = (ROOT / "src/Services/StateStore.php").read_text()
     block = store[store.index("AUTO_DEFAULTS"):store.index("AUTO_MIN")]
     defaults = set(re.findall(r"^\s+'(\w+)' => ", block, re.M))
-    form = set(re.findall(r'wire:model(?:\.\w+)?="auto\.(\w+)"', blade))
-    # mod_sources ist eine Abbildung, kein Einzelwert - es steht absichtlich
-    # nicht in AUTO_DEFAULTS, sondern wird in modSources() geprueft.
-    strays = sorted(f for f in form if f not in defaults and f != "mod_sources")
-    check(not strays, "jedes Einstellfeld existiert in AUTO_DEFAULTS (%d)" % len(form), ", ".join(strays))
+    # Nur echte Eingabefelder. TextEntry ist Anzeige und hat im Speicher nichts
+    # verloren; 'watch' und 'add_input' sind absichtlich nur Oberflaeche und
+    # werden in toAuto() wieder entfernt.
+    form = set(re.findall(r"(?:TextInput|Select|Toggle|Textarea)::make\('(\w+)'\)", page))
+    surface = {"watch", "add_input"}
+    strays = sorted(f for f in form - surface if f not in defaults)
+    check(not strays, "jedes Eingabefeld existiert in AUTO_DEFAULTS (%d)" % len(form), ", ".join(strays))
+
+    # Und andersherum: was gespeichert wird, aber nirgends bedienbar ist, ist
+    # entweder ein vergessenes Feld oder ein toter Eintrag im Speicher.
+    internal = {"check_mods", "check_game", "mod_sources"}
+    missing_field = sorted(d for d in defaults - form - internal)
+    check(not missing_field, "jede Einstellung hat ein Eingabefeld (%d)" % len(defaults),
+          ", ".join(missing_field))
 
     # Jedes Ergebnis, das der Speicher durchlaesst, muss eine Uebersetzung
     # haben - die Ansicht baut den Schluessel zur Laufzeit zusammen, ein

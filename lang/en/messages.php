@@ -84,6 +84,7 @@ return [
 
     'mods' => [
         'heading' => 'Installierte Mods',
+        'installed' => 'On the server',
         'name' => 'Mod',
         'version' => 'Version',
         'source' => 'Quelle',
@@ -91,6 +92,8 @@ return [
         'tracked' => 'Wird geprueft',
         'yes' => 'ja',
         'no' => 'nein',
+        'untracked' => 'not tracked',
+        'remove_named' => 'remove :mod',
         'remove' => 'remove',
         'remove_confirm' => 'Really delete :mod from the server?',
     ],

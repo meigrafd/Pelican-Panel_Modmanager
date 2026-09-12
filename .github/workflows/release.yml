@@ -68,7 +68,7 @@ jobs:
           mkdir -p build/mod-auto-restart
           rsync -a --exclude='.git' --exclude='.github' --exclude='build' \
                 --exclude='tests' --exclude='check.py' --exclude='lint.sh' \
-                --exclude='*.zip' \
+                --exclude='CLAUDE.md' --exclude='*.zip' \
                 ./ build/mod-auto-restart/
           cd build && zip -rq ../mod-auto-restart.zip mod-auto-restart
 
