@@ -1,5 +1,21 @@
 # Änderungen
 
+## 0.5.2
+
+- **Die Seite lädt nach „entfernen“, „installieren“ und „Speichern“ neu.**
+  Filament baut das Formular je Anfrage einmal, und zwar beim Suchen der
+  angeklickten Aktion, also vor ihrer Wirkung. Eine gelöschte Mod stand
+  deshalb bis zum nächsten Klick weiter in der Liste. Die Meldung überlebt
+  die Weiterleitung.
+- **Kein `optimize:clear` mehr nach einem Update.** Pelican leert beim
+  Install und Update nur die Filament-Komponenten; kompilierte Views und ein
+  gecachter Config-Stand blieben liegen (daher der Fehler „Undefined variable
+  $crossplay“ nach 0.4.1). Das Plugin merkt sich jetzt die zuletzt gesehene
+  Version und räumt bei einer Abweichung einmal selbst auf: Views leeren, und
+  falls das Panel mit gecachter Konfiguration läuft, den Cache neu bauen.
+  Schlägt das fehl, steht eine Warnung mit dem Hinweis auf `optimize:clear`
+  im Log.
+
 ## 0.5.1
 
 - **Mods mit `plugins/`-Aufbau fehlten nach der Installation in der Liste**

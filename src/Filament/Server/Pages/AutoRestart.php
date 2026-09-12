@@ -1129,6 +1129,8 @@ class AutoRestart extends Page
 
         $this->persist($auto);
         Notification::make()->title(trans('mar::messages.notify.saved'))->success()->send();
+        // Ein anderes Profil heisst andere Quellen, Felder und Mod-Liste.
+        $this->reload();
     }
 
     public function enableEggAutoUpdate(): void
@@ -1333,7 +1335,6 @@ class AutoRestart extends Page
 
         $this->plan = null;
         $this->forgetIndex();
-        $this->load();
 
         if ($failed) {
             Notification::make()
@@ -1342,6 +1343,7 @@ class AutoRestart extends Page
                 ->danger()
                 ->persistent()
                 ->send();
+            $this->reload();
 
             return;
         }
@@ -1352,6 +1354,26 @@ class AutoRestart extends Page
             ->success()
             ->persistent()
             ->send();
+        $this->reload();
+    }
+
+    /**
+     * Die Seite neu laden, statt das Formular im laufenden Zug umzubauen.
+     *
+     * Filament baut das Schema je Anfrage einmal - beim Suchen der
+     * angeklickten Aktion, also VOR ihrer Wirkung. Zeilen, die eine Aktion
+     * entfernt oder hinzufuegt, erschienen deshalb erst beim naechsten
+     * Klick. Die Meldung ueberlebt die Weiterleitung: Filament legt sie in
+     * die Session.
+     */
+    private function reload(): void
+    {
+        if ($this->pageUrl === '') {
+            $this->load();
+
+            return;
+        }
+        $this->redirect($this->pageUrl);
     }
 
     // ------------------------------------------------------- konfiguration
@@ -1461,12 +1483,12 @@ class AutoRestart extends Page
 
         $result = app(Installer::class)->remove($this->getServer(), $fullName, $this->profile);
         $this->forgetIndex();
-        $this->load();
 
         Notification::make()
             ->title($result['note'])
             ->{$result['ok'] ? 'success' : 'danger'}()
             ->send();
+        $this->reload();
     }
 
     /**
