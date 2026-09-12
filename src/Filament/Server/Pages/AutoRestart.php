@@ -7,30 +7,57 @@ use App\Models\Server;
 use BackedEnum;
 use Carbon\Carbon;
 use Carbon\CarbonInterval;
+use Filament\Actions\Action;
 use Filament\Facades\Filament;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
+use Filament\Forms\Concerns\InteractsWithForms;
+use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Filament\Schemas\Components\Actions;
+use Filament\Schemas\Components\Fieldset;
+use Filament\Schemas\Components\Grid;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Schema;
 use Meigrafd\ModAutoRestart\Services\AutoUpdateService;
 use Meigrafd\ModAutoRestart\Services\Compatibility;
 use Meigrafd\ModAutoRestart\Services\GameBuild;
 use Meigrafd\ModAutoRestart\Services\GameProfile;
 use Meigrafd\ModAutoRestart\Services\Installer;
-use Meigrafd\ModAutoRestart\Services\PackageResolver;
 use Meigrafd\ModAutoRestart\Services\Messenger;
 use Meigrafd\ModAutoRestart\Services\ModScanner;
+use Meigrafd\ModAutoRestart\Services\PackageResolver;
 use Meigrafd\ModAutoRestart\Services\RconClient;
 use Meigrafd\ModAutoRestart\Services\StateStore;
 
+/**
+ * Die Seite am Server.
+ *
+ * Vollstaendig aus Filament-Bausteinen aufgebaut, nicht aus eigenem HTML. Das
+ * ist keine Stilfrage: Ein Filament-Panel kompiliert sein CSS vorab und nimmt
+ * nur die Klassen auf, die es selbst verwendet. Von Hand geschriebene
+ * Tailwind-Klassen aus einem Plugin stehen nicht darin - die Felder erscheinen
+ * dann untereinander und ungestylt, ohne dass irgendwo ein Fehler auftaucht.
+ * Section, Grid, Select und TextInput bringen Layout, Spalten, Dunkelmodus und
+ * Abstaende dagegen selbst mit.
+ *
+ * @property Schema $form
+ */
 class AutoRestart extends Page
 {
+    use InteractsWithForms;
+
     protected static string|BackedEnum|null $navigationIcon = 'tabler-refresh-alert';
 
     protected static ?int $navigationSort = 9;
 
     protected string $view = 'mod-auto-restart::auto-restart';
 
-    /** @var array<string,mixed> Einstellungen, an das Formular gebunden */
-    public array $auto = [];
+    /** @var array<string,mixed> Formularzustand */
+    public ?array $data = [];
 
     /** @var array<string,mixed> Laufender Zustand (Phase, letzte Pruefung) */
     public array $run = [];
@@ -44,29 +71,21 @@ class AutoRestart extends Page
     /** @var array<string,mixed> aufgeloestes Spielprofil */
     public array $profile = [];
 
-    /** @var array<string,string> Schluessel => Beschriftung */
-    public array $profileOptions = [];
-
     public string $modsNote = '';
 
     public bool $eggAutoUpdate = true;
 
-    public bool $crossplay = false;
+    public bool $flagWarning = false;
 
     public bool $canWarn = false;
-
-    // --------------------------------------------------------- Installation
-
-    /** Eingabefeld: URL oder "Autor-Paket". */
-    public string $addInput = '';
 
     /**
      * Der geprueften Plan, bevor er ausgefuehrt wird.
      *
-     * Bewusst zweistufig: erst zeigen, was passieren wuerde, dann auf einen
+     * Zweistufig mit Absicht: erst zeigen, was passieren wuerde, dann auf einen
      * zweiten Knopf hin tun. Ein Installer, der auf Enter hin sofort Dateien
-     * schreibt, gibt dem Operator keine Gelegenheit, eine falsch kopierte URL
-     * zu bemerken - und die Abhaengigkeiten sieht er sonst nie.
+     * schreibt, gibt keine Gelegenheit, eine falsch kopierte URL zu bemerken -
+     * und die Abhaengigkeiten sieht man sonst nie.
      *
      * @var array<string,mixed>|null
      */
@@ -77,16 +96,14 @@ class AutoRestart extends Page
         return trans('mar::messages.nav');
     }
 
+    public function getTitle(): string
+    {
+        return trans('mar::messages.nav');
+    }
+
     /**
-     * Sichtbar fuer Nutzer mit Dateizugriff.
-     *
-     * Dateizugriff, weil die Einstellungen in einer Datei neben den
-     * Serverdateien liegen - wer die lesen darf, darf auch diese Seite sehen.
-     *
-     * Ob das Egg zu einem Profil passt, entscheidet hier bewusst NICHT ueber die
-     * Sichtbarkeit, solange `require_known_profile` aus ist: sonst waere ein
-     * eigenes Egg mit ungewoehnlichem Namen von der Funktion ausgesperrt, obwohl
-     * der Operator sein Profil von Hand setzen koennte.
+     * Sichtbar fuer Nutzer mit Dateizugriff - die Einstellungen liegen in einer
+     * Datei neben den Serverdateien.
      */
     public static function canAccess(): bool
     {
@@ -105,40 +122,795 @@ class AutoRestart extends Page
 
     public function mount(): void
     {
-        $this->profileOptions = app(GameProfile::class)->options();
         $this->load();
     }
 
-    private function getServer(): Server
+    // ------------------------------------------------------------- formular
+
+    public function form(Schema $schema): Schema
     {
-        return Filament::getTenant();
+        return $schema
+            ->statePath('data')
+            ->components([
+                $this->statusSection(),
+                $this->settingsSection(),
+                $this->modsSection(),
+                $this->historySection(),
+            ]);
     }
 
-    private function canWrite(): bool
+    private function statusSection(): Section
     {
-        return (bool) user()?->can(SubuserPermission::FileUpdate, $this->getServer());
+        return Section::make(trans('mar::messages.status.heading'))
+            ->description($this->statusDescription())
+            ->icon('tabler-activity')
+            ->columnSpanFull()
+            ->schema([
+                TextEntry::make('status_note')
+                    ->hiddenLabel()
+                    ->columnSpanFull()
+                    ->state(fn () => $this->run['note'] ?? trans('mar::messages.status.idle'))
+                    ->color($this->statusTone()),
+
+                // Die Hinweise stehen als eigene Eintraege da, nicht als
+                // Fliesstext: So bleiben sie sichtbar, wenn mehrere zugleich
+                // zutreffen, und jeder hat seine eigene Farbe.
+                TextEntry::make('hint_failed')
+                    ->hiddenLabel()
+                    ->columnSpanFull()
+                    ->visible(fn () => ($this->run['phase'] ?? '') === 'failed')
+                    ->state(trans('mar::messages.status.failed_help'))
+                    ->color('danger'),
+
+                TextEntry::make('hint_auto_update')
+                    ->hiddenLabel()
+                    ->columnSpanFull()
+                    ->visible(fn () => !$this->eggAutoUpdate)
+                    ->state(trans('mar::messages.status.no_auto_update'))
+                    ->color('warning'),
+
+                TextEntry::make('hint_crossplay')
+                    ->hiddenLabel()
+                    ->columnSpanFull()
+                    ->visible(fn (Get $get) => $this->flagWarning && (bool) $get('check_mods'))
+                    ->state(trans('mar::messages.status.crossplay'))
+                    ->color('warning'),
+
+                TextEntry::make('hint_silent')
+                    ->hiddenLabel()
+                    ->columnSpanFull()
+                    ->visible(fn (Get $get) => (bool) $get('enabled') && !$this->canWarn)
+                    ->state(fn () => $this->messagingVia() === 'none'
+                        ? trans('mar::messages.status.silent_profile')
+                        : trans('mar::messages.status.silent_unconfigured'))
+                    ->color('warning'),
+
+                TextEntry::make('status_detail')
+                    ->label(trans('mar::messages.status.detail'))
+                    ->columnSpanFull()
+                    ->visible(fn () => !empty($this->run['detail']))
+                    ->listWithLineBreaks()
+                    ->state(fn () => (array) ($this->run['detail'] ?? [])),
+            ])
+            ->footerActions([
+                Action::make('check_now')
+                    ->label(trans('mar::messages.action.check_now'))
+                    ->icon('tabler-refresh')
+                    ->color('gray')
+                    ->action('checkNow'),
+
+                Action::make('restart_now')
+                    ->label(trans('mar::messages.action.restart_now'))
+                    ->icon('tabler-player-play')
+                    ->color('gray')
+                    ->visible(fn () => $this->canRestart())
+                    ->requiresConfirmation()
+                    ->modalDescription(trans('mar::messages.action.restart_confirm'))
+                    ->action('restartNow'),
+
+                Action::make('set_flag')
+                    ->label(trans('mar::messages.action.set_flag'))
+                    ->color('warning')
+                    ->visible(fn () => !$this->eggAutoUpdate && $this->canWrite())
+                    ->action('enableEggAutoUpdate'),
+
+                Action::make('clear_failure')
+                    ->label(trans('mar::messages.action.clear_failure'))
+                    ->color('danger')
+                    ->visible(fn () => ($this->run['phase'] ?? '') === 'failed' && $this->canWrite())
+                    ->action('clearFailure'),
+            ]);
     }
 
-    private function canRestart(): bool
+    private function settingsSection(): Section
     {
-        return (bool) user()?->can(SubuserPermission::ControlRestart, $this->getServer());
+        $writable = $this->canWrite();
+
+        return Section::make(trans('mar::messages.settings.heading'))
+            ->description(trans('mar::messages.settings.intro'))
+            ->icon('tabler-settings')
+            ->collapsible()
+            ->columnSpanFull()
+            ->columns(['default' => 1, 'md' => 4])
+            ->schema([
+                Fieldset::make(trans('mar::messages.settings.game_heading'))
+                    ->columnSpanFull()
+                    ->columns(['default' => 1, 'md' => 4])
+                    ->schema([
+                        Select::make('profile')
+                            ->label(trans('mar::messages.settings.profile'))
+                            ->options(app(GameProfile::class)->options())
+                            ->placeholder(trans('mar::messages.settings.profile_auto'))
+                            ->helperText(fn () => ($this->profile['detected'] ?? null)
+                                ? trans('mar::messages.settings.profile_detected', ['label' => $this->profile['label']])
+                                : null)
+                            ->disabled(!$writable)
+                            // Sofort anwenden statt erst beim Speichern: sonst
+                            // zeigt die Seite nach der Auswahl noch Mods,
+                            // Quellen und Felder des alten Profils.
+                            ->live()
+                            ->afterStateUpdated(fn () => $this->profileChanged()),
+
+                        TextInput::make('app_id')
+                            ->label(trans('mar::messages.settings.app_id'))
+                            ->placeholder(fn () => $this->profile['app_id'] ?? trans('mar::messages.settings.app_id_unknown'))
+                            ->helperText(trans('mar::messages.settings.app_id_hint'))
+                            ->numeric()
+                            ->disabled(!$writable),
+
+                        TextInput::make('mods_path')
+                            ->label(trans('mar::messages.settings.mods_path'))
+                            ->placeholder(fn () => $this->profile['mods_path'] ?? '—')
+                            ->helperText(trans('mar::messages.settings.mods_path_hint'))
+                            ->disabled(!$writable),
+
+                        Select::make('source')
+                            ->label(trans('mar::messages.settings.source'))
+                            ->options(fn () => array_combine(array_keys($this->sources()), array_keys($this->sources())))
+                            ->helperText(trans('mar::messages.settings.source_hint'))
+                            ->visible(fn () => count($this->sources()) > 1)
+                            ->disabled(!$writable),
+                    ]),
+
+                Toggle::make('enabled')
+                    ->label(trans('mar::messages.settings.enabled'))
+                    ->columnSpanFull()
+                    ->live()
+                    ->disabled(!$writable),
+
+                Select::make('warn_minutes')
+                    ->label(trans('mar::messages.settings.warn'))
+                    ->options([
+                        0 => trans('mar::messages.settings.warn_none'),
+                        1 => '1', 2 => '2',
+                        5 => trans('mar::messages.settings.recommended', ['n' => 5]),
+                        10 => '10', 15 => '15', 30 => '30',
+                    ])
+                    ->selectablePlaceholder(false)
+                    ->disabled(!$writable),
+
+                Select::make('check_minutes')
+                    ->label(trans('mar::messages.settings.interval'))
+                    ->options([
+                        5 => trans('mar::messages.settings.recommended', ['n' => 5]),
+                        10 => '10', 15 => '15', 30 => '30', 60 => '60',
+                    ])
+                    ->selectablePlaceholder(false)
+                    ->disabled(!$writable),
+
+                Select::make('backup')
+                    ->label(trans('mar::messages.settings.backup'))
+                    ->options([
+                        1 => trans('mar::messages.settings.backup_always'),
+                        0 => trans('mar::messages.settings.backup_never'),
+                    ])
+                    ->selectablePlaceholder(false)
+                    ->helperText(trans('mar::messages.settings.backup_hint'))
+                    ->disabled(!$writable),
+
+                Select::make('watch')
+                    ->label(trans('mar::messages.settings.watch'))
+                    ->options([
+                        'both' => trans('mar::messages.settings.watch_both'),
+                        'mods' => trans('mar::messages.settings.watch_mods'),
+                        'game' => trans('mar::messages.settings.watch_game'),
+                    ])
+                    ->selectablePlaceholder(false)
+                    // Ein Feld nach aussen, zwei Schalter nach innen: "nur
+                    // Mods" auf einem Crossplay-Server und "nur Spiel" auf einem
+                    // Vanilla-Server sind beides sinnvolle Einstellungen.
+                    ->live()
+                    ->afterStateUpdated(function ($state) {
+                        $this->data['check_mods'] = $state !== 'game';
+                        $this->data['check_game'] = $state !== 'mods';
+                    })
+                    ->disabled(!$writable),
+
+                Fieldset::make(trans('mar::messages.settings.msg_heading'))
+                    ->columnSpanFull()
+                    ->columns(['default' => 1, 'md' => 3])
+                    ->schema([
+                        TextEntry::make('msg_intro')
+                            ->hiddenLabel()
+                            ->columnSpanFull()
+                            ->state(fn () => match ($this->messagingVia()) {
+                                'none' => trans('mar::messages.settings.msg_none'),
+                                'console' => trans('mar::messages.settings.msg_console'),
+                                default => $this->messagingMod()
+                                    ? trans('mar::messages.settings.msg_rcon_mod', ['mod' => $this->messagingMod()])
+                                    : trans('mar::messages.settings.msg_rcon'),
+                            }),
+
+                        TextInput::make('rcon_host')
+                            ->label(trans('mar::messages.settings.rcon_host'))
+                            ->placeholder(trans('mar::messages.settings.rcon_host_placeholder'))
+                            ->visible(fn () => $this->messagingVia() === 'rcon')
+                            ->disabled(!$writable),
+
+                        TextInput::make('rcon_port')
+                            ->label(trans('mar::messages.settings.rcon_port'))
+                            ->placeholder(fn () => trans('mar::messages.settings.rcon_port_placeholder',
+                                ['n' => ($this->profile['messaging']['port_offset'] ?? 0)]))
+                            ->numeric()
+                            ->visible(fn () => $this->messagingVia() === 'rcon')
+                            ->disabled(!$writable),
+
+                        TextInput::make('rcon_password')
+                            ->label(trans('mar::messages.settings.rcon_password'))
+                            ->password()
+                            ->revealable()
+                            ->helperText(trans('mar::messages.settings.rcon_warning'))
+                            ->visible(fn () => $this->messagingVia() === 'rcon')
+                            ->disabled(!$writable),
+
+                        Actions::make([
+                            Action::make('test_messaging')
+                                ->label(trans('mar::messages.action.test_messaging'))
+                                ->icon('tabler-message')
+                                ->color('gray')
+                                ->action('testMessaging'),
+                        ])
+                            ->columnSpanFull()
+                            ->visible(fn () => $this->messagingVia() !== 'none'),
+                    ]),
+
+                Fieldset::make(trans('mar::messages.settings.advanced'))
+                    ->columnSpanFull()
+                    ->columns(['default' => 1, 'md' => 3])
+                    ->schema([
+                        TextInput::make('countdown_seconds')
+                            ->label(trans('mar::messages.settings.countdown'))
+                            ->numeric()->minValue(0)->maxValue(60)
+                            ->disabled(!$writable),
+
+                        TextInput::make('cooldown_minutes')
+                            ->label(trans('mar::messages.settings.cooldown'))
+                            ->numeric()->minValue(0)->maxValue(1440)
+                            ->disabled(!$writable),
+
+                        TextInput::make('backup_wait_seconds')
+                            ->label(trans('mar::messages.settings.backup_wait'))
+                            ->numeric()->minValue(0)->maxValue(900)
+                            ->disabled(!$writable),
+
+                        TextInput::make('msg_warn')
+                            ->label(trans('mar::messages.settings.msg_warn'))
+                            ->columnSpanFull()
+                            ->disabled(!$writable),
+
+                        TextInput::make('msg_final')
+                            ->label(trans('mar::messages.settings.msg_final'))
+                            ->columnSpanFull()
+                            ->disabled(!$writable),
+
+                        TextInput::make('msg_countdown')
+                            ->label(trans('mar::messages.settings.msg_countdown'))
+                            ->columnSpanFull()
+                            ->disabled(!$writable),
+
+                        TextInput::make('msg_back')
+                            ->label(trans('mar::messages.settings.msg_back'))
+                            ->columnSpanFull()
+                            ->helperText(trans('mar::messages.settings.placeholders'))
+                            ->disabled(!$writable),
+                    ]),
+            ])
+            ->footerActions([
+                Action::make('save')
+                    ->label(trans('mar::messages.action.save'))
+                    ->icon('tabler-device-floppy')
+                    ->visible($writable)
+                    ->action('save'),
+            ]);
+    }
+
+    private function modsSection(): Section
+    {
+        return Section::make(trans('mar::messages.mods.heading'))
+            ->description(fn () => $this->modsNote)
+            ->icon('tabler-puzzle')
+            ->collapsible()
+            ->columnSpanFull()
+            ->schema([
+                Grid::make(['default' => 1, 'md' => 4])
+                    ->columnSpanFull()
+                    ->visible(fn () => $this->canWrite() && $this->sources() && !$this->plan)
+                    ->schema([
+                        TextInput::make('add_input')
+                            ->hiddenLabel()
+                            ->columnSpan(['default' => 1, 'md' => 3])
+                            ->placeholder(trans('mar::messages.add.placeholder'))
+                            ->helperText(trans('mar::messages.add.hint')),
+
+                        Actions::make([
+                            Action::make('preview')
+                                ->label(trans('mar::messages.action.preview'))
+                                ->icon('tabler-search')
+                                ->action('preview'),
+                        ]),
+                    ]),
+
+                // Der Plan. Steht bewusst zwischen Eingabe und Liste: was hier
+                // steht, ist noch nicht passiert.
+                Section::make(fn () => trans('mar::messages.add.plan', ['source' => $this->plan['source'] ?? '']))
+                    ->columnSpanFull()
+                    ->visible(fn () => (bool) $this->plan)
+                    ->schema([
+                        TextEntry::make('plan_install')
+                            ->hiddenLabel()
+                            ->columnSpanFull()
+                            ->listWithLineBreaks()
+                            ->state(fn () => $this->planLines()),
+
+                        TextEntry::make('plan_skipped')
+                            ->hiddenLabel()
+                            ->columnSpanFull()
+                            ->visible(fn () => !empty($this->plan['skipped']))
+                            ->listWithLineBreaks()
+                            ->color('gray')
+                            ->state(fn () => array_map(
+                                fn ($r) => $r['full_name'] . ' — ' . $r['why'],
+                                (array) ($this->plan['skipped'] ?? [])
+                            )),
+
+                        TextEntry::make('plan_good')
+                            ->hiddenLabel()
+                            ->columnSpanFull()
+                            ->visible(fn () => !empty($this->plan['good']))
+                            ->listWithLineBreaks()
+                            ->color('success')
+                            ->state(fn () => (array) ($this->plan['good'] ?? [])),
+
+                        TextEntry::make('plan_warnings')
+                            ->hiddenLabel()
+                            ->columnSpanFull()
+                            ->visible(fn () => !empty($this->plan['warnings']))
+                            ->listWithLineBreaks()
+                            ->color('warning')
+                            ->state(fn () => (array) ($this->plan['warnings'] ?? [])),
+
+                        TextEntry::make('plan_stop')
+                            ->hiddenLabel()
+                            ->columnSpanFull()
+                            ->visible(fn () => !empty($this->plan['stop']))
+                            ->listWithLineBreaks()
+                            ->color('danger')
+                            ->state(fn () => (array) ($this->plan['stop'] ?? [])),
+                    ])
+                    ->footerActions([
+                        Action::make('do_install')
+                            ->label(fn () => empty($this->plan['stop'])
+                                ? trans('mar::messages.action.install')
+                                : trans('mar::messages.action.install_anyway'))
+                            ->icon('tabler-download')
+                            ->color(fn () => empty($this->plan['stop']) ? 'primary' : 'danger')
+                            ->visible(fn () => !empty($this->plan['install']))
+                            ->action('install'),
+
+                        Action::make('cancel_plan')
+                            ->label(trans('mar::messages.action.cancel'))
+                            ->color('gray')
+                            ->action('clearPlan'),
+                    ]),
+
+                TextEntry::make('mod_list')
+                    ->hiddenLabel()
+                    ->columnSpanFull()
+                    ->visible(fn () => (bool) $this->mods)
+                    ->listWithLineBreaks()
+                    ->state(fn () => $this->modLines()),
+
+                Actions::make($this->modActions())
+                    ->columnSpanFull()
+                    ->visible(fn () => $this->canWrite() && (bool) $this->mods),
+            ]);
+    }
+
+    private function historySection(): Section
+    {
+        return Section::make(trans('mar::messages.history.heading'))
+            ->description(trans('mar::messages.history.intro'))
+            ->icon('tabler-history')
+            ->collapsible()
+            ->collapsed()
+            ->columnSpanFull()
+            ->visible(fn () => (bool) $this->history)
+            ->schema([
+                TextEntry::make('history_list')
+                    ->hiddenLabel()
+                    ->columnSpanFull()
+                    ->listWithLineBreaks()
+                    ->state(fn () => $this->historyLines()),
+            ]);
+    }
+
+    // -------------------------------------------------------------- anzeige
+
+    /** @return array<int,string> */
+    private function planLines(): array
+    {
+        $lines = [];
+        $install = (array) ($this->plan['install'] ?? []);
+        $last = count($install) - 1;
+
+        foreach ($install as $i => $package) {
+            $line = ($i + 1) . '. ' . $package['full_name'] . '  ' . $package['version'];
+            if (($package['action'] ?? '') === 'update') {
+                $line .= '  (' . trans('mar::messages.add.update_from', ['from' => $package['from']]) . ')';
+            } elseif ($i < $last) {
+                // Alles ausser dem letzten Eintrag ist eine Abhaengigkeit: der
+                // Plan ist so sortiert, dass zuerst kommt, was zuerst liegen
+                // muss.
+                $line .= '  (' . trans('mar::messages.add.dependency') . ')';
+            }
+            $lines[] = $line;
+        }
+
+        return $lines ?: [trans('mar::messages.add.nothing')];
+    }
+
+    /** @return array<int,string> */
+    private function modLines(): array
+    {
+        $lines = [];
+        foreach ($this->mods as $mod) {
+            $line = $mod['full_name'] . '  ' . ($mod['version'] ?: '—');
+            if (!$mod['tracked']) {
+                $line .= '  · ' . trans('mar::messages.mods.untracked');
+            }
+            $lines[] = $line;
+        }
+
+        return $lines;
+    }
+
+    /** @return array<int,Action> */
+    private function modActions(): array
+    {
+        $actions = [];
+        foreach ($this->mods as $i => $mod) {
+            $name = (string) $mod['full_name'];
+            $actions[] = Action::make('remove_' . $i)
+                ->label(trans('mar::messages.mods.remove_named', ['mod' => $name]))
+                ->icon('tabler-trash')
+                ->color('danger')
+                ->size('sm')
+                ->link()
+                ->requiresConfirmation()
+                ->modalDescription(trans('mar::messages.mods.remove_confirm', ['mod' => $name]))
+                ->action(fn () => $this->remove($name));
+        }
+
+        return $actions;
+    }
+
+    /** @return array<int,string> */
+    private function historyLines(): array
+    {
+        $lines = [];
+
+        foreach ($this->history as $entry) {
+            $head = $entry['at'] . '  ·  ' . trans('mar::messages.outcome.' . $entry['outcome']);
+            if ($entry['down']) {
+                $head .= '  ·  ' . trans('mar::messages.history.down', ['time' => $entry['down']]);
+            }
+
+            $what = $entry['trigger'] === 'manual'
+                ? trans('mar::messages.history.manual', ['by' => $entry['by'] ?: '?'])
+                : trans('mar::messages.history.auto', ['reason' => $entry['reason']]);
+
+            if (!is_null($entry['players'])) {
+                $what .= ', ' . trans('mar::messages.history.players', ['n' => $entry['players']]);
+            }
+            if ($entry['trigger'] === 'auto' && !$entry['warned']) {
+                // Ohne diese Angabe raet ein Operator, warum sich jemand ueber
+                // einen Neustart ohne Vorwarnung beschwert.
+                $what .= ', ' . trans('mar::messages.history.not_warned');
+            }
+
+            $changes = [];
+            foreach ($entry['changes'] as $change) {
+                $text = $change['name'];
+                if ($change['pair']) {
+                    $text .= ' ' . $change['pair'][0] . ' → ' . $change['pair'][1];
+                } elseif ($change['from_only']) {
+                    $text .= ' ' . $change['from_only'];
+                }
+                if ($change['source']) {
+                    $text .= ' (' . $change['source'] . ')';
+                }
+                $changes[] = $text;
+            }
+
+            $line = $head . '  —  ' . $what;
+            if ($changes) {
+                $line .= ': ' . implode(', ', $changes);
+            }
+            if ($entry['note']) {
+                $line .= '  ⚠ ' . $entry['note'];
+            }
+
+            $lines[] = $line;
+        }
+
+        return $lines;
+    }
+
+    private function statusDescription(): string
+    {
+        $parts = [$this->profile['label'] ?? '?'];
+        if (!empty($this->profile['app_id'])) {
+            $parts[] = 'App ' . $this->profile['app_id'];
+        }
+        if ($at = $this->checkedAt()) {
+            $parts[] = trans('mar::messages.status.checked', ['ago' => $at]);
+        }
+
+        return implode(' · ', $parts);
+    }
+
+    private function checkedAt(): ?string
+    {
+        $at = (int) ($this->run['checked_at'] ?? 0);
+
+        return $at > 0
+            ? Carbon::createFromTimestamp($at)->setTimezone(config('app.timezone'))->diffForHumans()
+            : null;
+    }
+
+    /** Farbe der Statuszeile. */
+    private function statusTone(): string
+    {
+        return match (true) {
+            ($this->run['phase'] ?? '') === 'failed' => 'danger',
+            ($this->run['phase'] ?? '') === 'warning' => 'warning',
+            (bool) ($this->run['degraded'] ?? false) => 'danger',
+            default => 'success',
+        };
+    }
+
+    /** @return array<string,string> */
+    private function sources(): array
+    {
+        return (array) ($this->profile['sources'] ?? []);
+    }
+
+    private function messagingVia(): string
+    {
+        return (string) (($this->profile['messaging'] ?? [])['via'] ?? 'none');
+    }
+
+    private function messagingMod(): string
+    {
+        return (string) (($this->profile['messaging'] ?? [])['needs_mod'] ?? '');
+    }
+
+    // --------------------------------------------------------------- laden
+
+    public function load(): void
+    {
+        $server = $this->getServer();
+        $state = app(StateStore::class)->read($server);
+        $auto = $state['auto'];
+
+        $this->run = $state['run'];
+        $this->history = $this->formatHistory($state['history']);
+        $this->profile = app(GameProfile::class)->for($server, $auto);
+
+        $service = app(AutoUpdateService::class);
+        $this->eggAutoUpdate = $service->autoUpdateEnabled($server);
+        $this->flagWarning = $service->noteFlag($server, $this->profile, 'crossplay');
+        $this->canWarn = app(Messenger::class)->available($this->profile, $auto);
+
+        $index = app(ModScanner::class)->index($server, $this->profile);
+        $this->mods = $index['mods'];
+        $this->modsNote = $index['note'];
+
+        // Zwei Schalter nach innen, ein Auswahlfeld nach aussen.
+        $auto['watch'] = ($auto['check_mods'] ?? true) && ($auto['check_game'] ?? true)
+            ? 'both'
+            : (($auto['check_mods'] ?? true) ? 'mods' : 'game');
+        $auto['backup'] = ($auto['backup'] ?? true) ? 1 : 0;
+        $auto['add_input'] = '';
+
+        $this->form->fill($auto);
+    }
+
+    /** @return array<string,mixed> Formularzustand zurueck in Speicherform */
+    private function toAuto(): array
+    {
+        $data = $this->form->getState();
+
+        $data['check_mods'] = ($data['watch'] ?? 'both') !== 'game';
+        $data['check_game'] = ($data['watch'] ?? 'both') !== 'mods';
+        $data['backup'] = (bool) ($data['backup'] ?? true);
+        unset($data['watch'], $data['add_input']);
+
+        return $data;
+    }
+
+    // ------------------------------------------------------------- aktionen
+
+    private function profileChanged(): void
+    {
+        $this->profile = app(GameProfile::class)->for($this->getServer(), $this->toAuto());
+        $this->plan = null;
+    }
+
+    public function save(): void
+    {
+        abort_unless($this->canWrite(), 403);
+        $server = $this->getServer();
+        $service = app(AutoUpdateService::class);
+        $auto = $this->toAuto();
+
+        // Die einzige Verweigerung. Ohne AUTO_UPDATE laedt der Start nichts
+        // nach, das Update steht danach immer noch aus, und die naechste
+        // Pruefung startet wieder neu. Das ist eine Neustart-Schleife, und die
+        // verhindert man besser, als sie zu erkennen.
+        if (($auto['enabled'] ?? false) && !$service->autoUpdateEnabled($server)) {
+            $auto['enabled'] = false;
+            $this->persist($auto);
+            Notification::make()
+                ->title(trans('mar::messages.notify.needs_flag'))
+                ->body(trans('mar::messages.notify.needs_flag_body'))
+                ->warning()
+                ->persistent()
+                ->send();
+
+            return;
+        }
+
+        $this->persist($auto);
+        Notification::make()->title(trans('mar::messages.notify.saved'))->success()->send();
+    }
+
+    public function enableEggAutoUpdate(): void
+    {
+        abort_unless($this->canWrite(), 403);
+        abort_unless((bool) user()?->can(SubuserPermission::StartupUpdate, $this->getServer()), 403);
+
+        if (!app(AutoUpdateService::class)->enableAutoUpdateVariable($this->getServer())) {
+            Notification::make()->title(trans('mar::messages.notify.no_flag'))->warning()->send();
+
+            return;
+        }
+
+        $this->load();
+        Notification::make()
+            ->title(trans('mar::messages.notify.flag_set'))
+            ->body(trans('mar::messages.notify.flag_set_body'))
+            ->success()
+            ->send();
+    }
+
+    /** Jetzt pruefen: alles frisch holen, nichts neu starten. */
+    public function checkNow(): void
+    {
+        $found = app(AutoUpdateService::class)->detect($this->getServer(), $this->profile, $this->toAuto(), true);
+        $this->load();
+
+        Notification::make()
+            ->title($found['note'])
+            ->body(implode("\n", array_slice($found['detail'], 0, 10)))
+            ->{match (true) {
+                (bool) $found['reason'] => 'warning',
+                $found['degraded'] => 'danger',
+                default => 'success',
+            }}()
+            ->send();
+    }
+
+    /** Ansageweg testen und sofort sichtbares Ergebnis liefern. */
+    public function testMessaging(): void
+    {
+        $auto = $this->toAuto();
+        $via = $this->messagingVia();
+
+        if ($via === 'none') {
+            Notification::make()->title(trans('mar::messages.notify.no_messaging'))->warning()->send();
+
+            return;
+        }
+
+        if ($via === 'rcon' && trim((string) ($auto['rcon_password'] ?? '')) === '') {
+            Notification::make()->title(trans('mar::messages.notify.rcon_no_password'))->warning()->send();
+
+            return;
+        }
+
+        // Nicht nur anmelden: eine sichtbare Nachricht schicken. Eine
+        // erfolgreiche Anmeldung beweist noch nicht, dass Spieler die Warnung
+        // spaeter auch sehen.
+        $ok = app(Messenger::class)->broadcast(
+            $this->getServer(), $this->profile, $auto, trans('mar::messages.test_message')
+        );
+
+        if ($via === 'rcon') {
+            $c = app(RconClient::class)->configFor($this->getServer(), $this->profile, $auto);
+            $where = $c['host'] . ':' . $c['port'];
+        } else {
+            $where = trans('mar::messages.settings.via_console');
+        }
+
+        Notification::make()
+            ->title($ok
+                ? trans('mar::messages.notify.msg_ok', ['where' => $where])
+                : trans('mar::messages.notify.msg_failed', ['where' => $where]))
+            ->body($ok ? trans('mar::messages.notify.msg_ok_body') : trans('mar::messages.notify.msg_failed_body'))
+            ->{$ok ? 'success' : 'danger'}()
+            ->send();
+    }
+
+    public function restartNow(): void
+    {
+        abort_unless($this->canRestart(), 403);
+
+        $result = app(AutoUpdateService::class)->restartManually(
+            $this->getServer(),
+            trans('mar::messages.manual_reason'),
+            (string) (user()?->username ?? '')
+        );
+
+        $this->load();
+
+        Notification::make()
+            ->title(trans('mar::messages.notify.restarting'))
+            ->body($result['wanted_backup']
+                ? ($result['backup_done']
+                    ? trans('mar::messages.notify.backup_done')
+                    : trans('mar::messages.notify.backup_running'))
+                : trans('mar::messages.notify.backup_off'))
+            ->success()
+            ->send();
+    }
+
+    /** Fehlerzustand quittieren, damit die Funktion wieder eingeschaltet werden kann. */
+    public function clearFailure(): void
+    {
+        abort_unless($this->canWrite(), 403);
+        $server = $this->getServer();
+        $store = app(StateStore::class);
+        $state = $store->read($server);
+        $state['run'] = ['phase' => 'idle', 'last_restart_at' => $state['run']['last_restart_at'] ?? 0];
+        $store->write($server, $state);
+        $this->load();
     }
 
     // --------------------------------------------------- Mods installieren
 
-    /**
-     * Eingabe aufloesen und den Plan zeigen. Aendert nichts auf dem Server.
-     */
+    /** Eingabe aufloesen und den Plan zeigen. Aendert nichts auf dem Server. */
     public function preview(): void
     {
         abort_unless($this->canWrite(), 403);
 
-        $input = trim($this->addInput);
+        $auto = $this->toAuto();
+        $input = trim((string) ($this->form->getState()['add_input'] ?? ''));
         if ($input === '') {
             return;
         }
 
-        $source = app(GameProfile::class)->sourceFor($this->profile, $this->auto, '');
+        $source = app(GameProfile::class)->sourceFor($this->profile, $auto, '');
         if ($source === null) {
             Notification::make()->title(trans('mar::messages.notify.no_source'))->warning()->send();
 
@@ -163,7 +935,10 @@ class AutoRestart extends Page
 
         // Zeitpunkt des letzten Spiel-Updates als Massstab fuer das
         // Altersurteil. Nicht ermittelbar heisst: kein Urteil, nicht "alt".
-        $notes = app(Compatibility::class)->checkAll($resolved['install'], $this->profile, $this->gameBuildAt());
+        $notes = app(Compatibility::class)->checkAll(
+            $resolved['install'], $this->profile,
+            app(GameBuild::class)->latestChangedAt($this->profile['app_id'] ?? null)
+        );
 
         $this->plan = [
             'source' => $source,
@@ -178,7 +953,7 @@ class AutoRestart extends Page
     public function clearPlan(): void
     {
         $this->plan = null;
-        $this->addInput = '';
+        $this->data['add_input'] = '';
     }
 
     /** Den gezeigten Plan ausfuehren. */
@@ -209,7 +984,6 @@ class AutoRestart extends Page
         }
 
         $this->plan = null;
-        $this->addInput = '';
         $this->forgetIndex();
         $this->load();
 
@@ -282,212 +1056,43 @@ class AutoRestart extends Page
         return $out;
     }
 
-    /**
-     * Wann der installierte Spiel-Build veroeffentlicht wurde.
-     *
-     * Dient als Massstab fuer "seit dem letzten Spiel-Update nicht angefasst".
-     * Nicht ermittelbar heisst null, und null heisst: kein Altersurteil.
-     */
-    private function gameBuildAt(): ?int
+    // ---------------------------------------------------------------- intern
+
+    private function getServer(): Server
     {
-        return app(GameBuild::class)->latestChangedAt($this->profile['app_id'] ?? null);
+        /** @var Server $server */
+        $server = Filament::getTenant();
+
+        return $server;
+    }
+
+    private function canWrite(): bool
+    {
+        return (bool) user()?->can(SubuserPermission::FileUpdate, $this->getServer());
+    }
+
+    private function canRestart(): bool
+    {
+        return (bool) user()?->can(SubuserPermission::ControlRestart, $this->getServer());
+    }
+
+    /** @param array<string,mixed> $auto */
+    private function persist(array $auto): void
+    {
+        $server = $this->getServer();
+        $store = app(StateStore::class);
+        $state = $store->read($server);
+        $state['auto'] = $auto;
+        $store->write($server, $state);
+        // Zurueckgelesen, damit das Formular die begrenzten Werte zeigt und
+        // nicht das, was jemand hineingetippt hat.
+        $this->load();
     }
 
     private function forgetIndex(): void
     {
         $path = trim((string) ($this->profile['mods_path'] ?? ''), '/');
         \Illuminate\Support\Facades\Cache::forget("mar:index:{$this->getServer()->id}:" . md5($path));
-    }
-
-    public function load(): void
-    {
-        $server = $this->getServer();
-        $state = app(StateStore::class)->read($server);
-
-        $this->auto = $state['auto'];
-        $this->run = $state['run'];
-        $this->history = $this->formatHistory($state['history']);
-
-        $this->profile = app(GameProfile::class)->for($server, $this->auto);
-
-        $service = app(AutoUpdateService::class);
-        $this->eggAutoUpdate = $service->autoUpdateEnabled($server);
-        $this->crossplay = $service->noteFlag($server, $this->profile, 'crossplay');
-        $this->canWarn = app(Messenger::class)->available($this->profile, $this->auto);
-
-        $index = app(ModScanner::class)->index($server, $this->profile);
-        $this->mods = $index['mods'];
-        $this->modsNote = $index['note'];
-    }
-
-    // ------------------------------------------------------------- aktionen
-
-    /**
-     * Profilwechsel sofort anwenden, ohne Speichern.
-     *
-     * Sonst zeigt die Seite nach der Auswahl noch die Mods, Quellen und Felder
-     * des alten Profils, und der Operator speichert eine Einstellung, deren
-     * Wirkung er nie gesehen hat.
-     */
-    public function updatedAutoProfile(): void
-    {
-        $this->profile = app(GameProfile::class)->for($this->getServer(), $this->auto);
-        $this->load();
-    }
-
-    public function save(): void
-    {
-        abort_unless($this->canWrite(), 403);
-        $server = $this->getServer();
-        $service = app(AutoUpdateService::class);
-
-        // Die einzige Verweigerung. Ohne AUTO_UPDATE laedt der Start nichts
-        // nach, das Update steht danach immer noch aus, und die naechste
-        // Pruefung startet wieder neu. Das ist eine Neustart-Schleife, und die
-        // verhindert man besser, als sie zu erkennen.
-        if (($this->auto['enabled'] ?? false) && !$service->autoUpdateEnabled($server)) {
-            $this->auto['enabled'] = false;
-            $this->persist($server);
-            Notification::make()
-                ->title(trans('mar::messages.notify.needs_flag'))
-                ->body(trans('mar::messages.notify.needs_flag_body'))
-                ->warning()
-                ->persistent()
-                ->send();
-
-            return;
-        }
-
-        $this->persist($server);
-        Notification::make()->title(trans('mar::messages.notify.saved'))->success()->send();
-    }
-
-    public function enableEggAutoUpdate(): void
-    {
-        abort_unless($this->canWrite(), 403);
-        abort_unless((bool) user()?->can(SubuserPermission::StartupUpdate, $this->getServer()), 403);
-
-        if (!app(AutoUpdateService::class)->enableAutoUpdateVariable($this->getServer())) {
-            Notification::make()->title(trans('mar::messages.notify.no_flag'))->warning()->send();
-
-            return;
-        }
-
-        $this->load();
-        Notification::make()
-            ->title(trans('mar::messages.notify.flag_set'))
-            ->body(trans('mar::messages.notify.flag_set_body'))
-            ->success()
-            ->send();
-    }
-
-    /** Jetzt pruefen: alles frisch holen, nichts neu starten. */
-    public function checkNow(): void
-    {
-        $found = app(AutoUpdateService::class)->detect($this->getServer(), $this->profile, $this->auto, true);
-        $this->load();
-
-        Notification::make()
-            ->title($found['note'])
-            ->body(implode("\n", array_slice($found['detail'], 0, 10)))
-            ->{match (true) {
-                (bool) $found['reason'] => 'warning',
-                $found['degraded'] => 'danger',
-                default => 'success',
-            }}()
-            ->send();
-    }
-
-    /** Ansageweg testen und sofort sichtbares Ergebnis liefern. */
-    public function testMessaging(): void
-    {
-        $via = (string) (($this->profile['messaging'] ?? [])['via'] ?? 'none');
-
-        if ($via === 'none') {
-            Notification::make()->title(trans('mar::messages.notify.no_messaging'))->warning()->send();
-
-            return;
-        }
-
-        if ($via === 'rcon' && trim((string) ($this->auto['rcon_password'] ?? '')) === '') {
-            Notification::make()->title(trans('mar::messages.notify.rcon_no_password'))->warning()->send();
-
-            return;
-        }
-
-        // Nicht nur anmelden: eine sichtbare Nachricht schicken. Eine
-        // erfolgreiche Anmeldung beweist noch nicht, dass Spieler die Warnung
-        // spaeter auch sehen.
-        $ok = app(Messenger::class)->broadcast(
-            $this->getServer(),
-            $this->profile,
-            $this->auto,
-            trans('mar::messages.test_message')
-        );
-
-        $where = $via === 'rcon'
-            ? (function () {
-                $c = app(RconClient::class)->configFor($this->getServer(), $this->profile, $this->auto);
-
-                return $c['host'] . ':' . $c['port'];
-            })()
-            : trans('mar::messages.settings.via_console');
-
-        Notification::make()
-            ->title($ok
-                ? trans('mar::messages.notify.msg_ok', ['where' => $where])
-                : trans('mar::messages.notify.msg_failed', ['where' => $where]))
-            ->body($ok ? trans('mar::messages.notify.msg_ok_body') : trans('mar::messages.notify.msg_failed_body'))
-            ->{$ok ? 'success' : 'danger'}()
-            ->send();
-    }
-
-    public function restartNow(): void
-    {
-        abort_unless($this->canRestart(), 403);
-
-        $result = app(AutoUpdateService::class)->restartManually(
-            $this->getServer(),
-            trans('mar::messages.manual_reason'),
-            (string) (user()?->username ?? '')
-        );
-
-        $this->load();
-
-        Notification::make()
-            ->title(trans('mar::messages.notify.restarting'))
-            ->body($result['wanted_backup']
-                ? ($result['backup_done']
-                    ? trans('mar::messages.notify.backup_done')
-                    : trans('mar::messages.notify.backup_running'))
-                : trans('mar::messages.notify.backup_off'))
-            ->success()
-            ->send();
-    }
-
-    /** Fehlerzustand quittieren, damit die Funktion wieder eingeschaltet werden kann. */
-    public function clearFailure(): void
-    {
-        abort_unless($this->canWrite(), 403);
-        $server = $this->getServer();
-        $store = app(StateStore::class);
-        $state = $store->read($server);
-        $state['run'] = ['phase' => 'idle', 'last_restart_at' => $state['run']['last_restart_at'] ?? 0];
-        $store->write($server, $state);
-        $this->load();
-    }
-
-    // ------------------------------------------------------------- anzeige
-
-    private function persist(Server $server): void
-    {
-        $store = app(StateStore::class);
-        $state = $store->read($server);
-        $state['auto'] = $this->auto;
-        $store->write($server, $state);
-        // Zurueckgelesen, damit das Formular die begrenzten Werte zeigt und
-        // nicht das, was jemand hineingetippt hat.
-        $this->load();
     }
 
     /**
@@ -513,7 +1118,6 @@ class AutoRestart extends Page
                     // wurde.
                     'pair' => ($from !== '' && $to !== '' && $from !== $to) ? [$from, $to] : null,
                     'from_only' => ($from !== '' && ($to === '' || $to === $from)) ? $from : '',
-                    'url' => $change['url'],
                     'source' => $change['source'] ?? '',
                 ];
             }
@@ -521,7 +1125,6 @@ class AutoRestart extends Page
             $at = Carbon::createFromTimestamp($entry['at'])->setTimezone($zone);
             $rows[] = [
                 'at' => $at->format('Y-m-d H:i'),
-                'ago' => $at->diffForHumans(),
                 'trigger' => $entry['trigger'],
                 'reason' => $entry['reason'],
                 'by' => $entry['by'],
@@ -537,53 +1140,5 @@ class AutoRestart extends Page
         }
 
         return $rows;
-    }
-
-    public function checkedAt(): ?string
-    {
-        $at = (int) ($this->run['checked_at'] ?? 0);
-
-        return $at > 0
-            ? Carbon::createFromTimestamp($at)->setTimezone(config('app.timezone'))->diffForHumans()
-            : null;
-    }
-
-    /** Farbe der Statuskarte: gruen, gelb, rot. */
-    public function statusTone(): string
-    {
-        return match (true) {
-            ($this->run['phase'] ?? '') === 'failed' => 'danger',
-            ($this->run['phase'] ?? '') === 'warning' => 'warning',
-            (bool) ($this->run['degraded'] ?? false) => 'danger',
-            default => 'success',
-        };
-    }
-
-    /** @return array<string,string> Quellenname => Basis-URL */
-    public function sources(): array
-    {
-        return (array) ($this->profile['sources'] ?? []);
-    }
-
-    /** Ansageweg des aktuellen Profils: rcon, console oder none. */
-    public function messagingVia(): string
-    {
-        return (string) (($this->profile['messaging'] ?? [])['via'] ?? 'none');
-    }
-
-    /** Mod, das dieses Profil fuer Ansagen braucht, oder leer. */
-    public function messagingMod(): string
-    {
-        return (string) (($this->profile['messaging'] ?? [])['needs_mod'] ?? '');
-    }
-
-    public function writable(): bool
-    {
-        return $this->canWrite();
-    }
-
-    public function restartable(): bool
-    {
-        return $this->canRestart();
     }
 }
