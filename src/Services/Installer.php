@@ -48,6 +48,14 @@ class Installer
      */
     private const JUNK = ['icon.png', 'CHANGELOG.md', 'LICENSE', 'LICENSE.txt', 'THIRD-PARTY-NOTICES.txt'];
 
+    /**
+     * Was beim Zusammenfuehren ins Serververzeichnis NICHT ueberschrieben
+     * wird, wenn es schon da ist. BepInEx.cfg traegt die Einstellungen des
+     * Operators; die Vorgabe aus dem Paket darf sie bei einem Update nicht
+     * platt machen. Vergleich auf den Anfang des Zielpfads.
+     */
+    private const PRESERVE = ['BepInEx/config/'];
+
     public function __construct(private DaemonFileRepository $files) {}
 
     /**
@@ -158,19 +166,25 @@ class Installer
                 $shape = $this->classify($entries);
             }
 
-            $target = match ($shape['layout']) {
-                // Ins Wurzelverzeichnis. Bewusst ohne eigenen Unterordner:
-                // BepInEx muss genau dort liegen, wo das Spiel es sucht.
-                'root' => '',
-                default => $modsPath . '/' . $full,
-            };
-
             if ($shape['layout'] === 'plugins') {
                 $temp .= '/' . $shape['from'];
                 $entries = $repo->getDirectory('/' . $temp);
             }
 
-            $this->moveInto($server, $temp, $target, $entries, $shape['layout']);
+            $target = $modsPath . '/' . $full;
+
+            if ($shape['layout'] === 'root') {
+                // Ins Wurzelverzeichnis, und zwar ZUSAMMENGEFUEHRT. BepInEx/
+                // liegt dort meist schon - das Egg installiert es -, und darin
+                // stecken plugins/ mit allen Mods und config/ mit den
+                // Einstellungen. Ersetzen wie bei den anderen Aufbauten
+                // loeschte beides; Verschieben lehnt Wings ab, sobald das
+                // Ziel existiert. Der Mod-Ordner bekommt nur die manifest.json
+                // als Marker, damit der Scanner Namen und Version kennt.
+                $this->mergeInto($server, $temp, $target);
+            } else {
+                $this->moveInto($server, $temp, $target, $entries, $shape['layout']);
+            }
             $this->wipe($server, self::TEMP . '/' . $full);
 
             return [
@@ -241,6 +255,132 @@ class Installer
             // spuerbare Wartezeit.
             $repo->renameFiles(null, $moves);
         }
+    }
+
+    /**
+     * Einen ganzen Baum ins Serververzeichnis einarbeiten.
+     *
+     * Ordner werden angelegt, wenn sie fehlen, und nie geloescht. Dateien
+     * werden einzeln ersetzt, mit der Ausnahme PRESERVE. Die manifest.json
+     * des Pakets wandert nicht ins Wurzelverzeichnis, sondern in den
+     * Mod-Ordner unter dem Paketnamen - ein Ordner ohne DLL, den BepInEx
+     * ignoriert, an dem der Scanner aber Namen und Version abliest. Erst
+     * damit sind Updates des Laders erkennbar, und "kein Herunterstufen"
+     * gilt auch fuer ihn.
+     *
+     * @param  string  $marker  Mod-Ordner des Pakets, nimmt nur die manifest.json auf
+     */
+    private function mergeInto(Server $server, string $from, string $marker): void
+    {
+        $repo = $this->files->setServer($server);
+        $list = function (string $path) use ($repo): array {
+            try {
+                return (array) $repo->getDirectory('/' . $path);
+            } catch (\Throwable $e) {
+                return [];   // gibt es nicht: nichts, womit man kollidieren koennte
+            }
+        };
+
+        // Der Marker wird ersetzt, nicht ergaenzt - wie jeder Mod-Ordner.
+        $this->wipe($server, $marker);
+        $plan = $this->planMerge($list, $from, $marker);
+
+        foreach ($plan['dirs'] as $dir) {
+            // Wings legt mit MkdirAll an: vorhandene Ordner bleiben, wie sie sind.
+            $parent = dirname($dir);
+            $repo->createDirectory(basename($dir), $parent === '.' ? '/' : '/' . $parent);
+        }
+        if ($plan['delete']) {
+            $repo->deleteFiles('/', $plan['delete']);
+        }
+        if ($plan['moves']) {
+            $repo->renameFiles(null, $plan['moves']);
+        }
+    }
+
+    /**
+     * Plan fuers Zusammenfuehren, ohne etwas anzufassen.
+     *
+     * Getrennt vom Ausfuehren, damit es sich gegen einen nachgebauten Baum
+     * pruefen laesst: Was wird angelegt, was geloescht, was verschoben, was
+     * bleibt liegen. Fehlt ein Zielordner ganz, wird er am Stueck verschoben
+     * - ein Aufruf statt einem je Datei.
+     *
+     * @param  callable(string):array<int,array<string,mixed>>  $list  Inhalt eines Pfads, leer wenn es ihn nicht gibt
+     * @param  string  $from  Zwischenordner mit dem entpackten Paket
+     * @param  string  $marker  Mod-Ordner des Pakets fuer die manifest.json
+     * @return array{dirs:string[],delete:string[],moves:array<int,array{from:string,to:string}>,kept:string[]}
+     */
+    public function planMerge(callable $list, string $from, string $marker): array
+    {
+        $plan = ['dirs' => [$marker], 'delete' => [], 'moves' => [], 'kept' => []];
+        $this->mergeDir($list, $from, '', $marker, $plan, true);
+
+        return $plan;
+    }
+
+    /**
+     * @param  array{dirs:string[],delete:string[],moves:array<int,array{from:string,to:string}>,kept:string[]}  $plan
+     */
+    private function mergeDir(callable $list, string $from, string $to, string $marker, array &$plan, bool $top): void
+    {
+        $existing = [];
+        foreach ($list($to) as $entry) {
+            $existing[(string) ($entry['name'] ?? '')] = true;
+        }
+
+        foreach ($list($from) as $entry) {
+            $name = (string) ($entry['name'] ?? '');
+            if ($name === '') {
+                continue;
+            }
+            $isDir = (bool) ($entry['directory'] ?? false);
+            $src = $from . '/' . $name;
+            $dst = ($to === '' ? '' : $to . '/') . $name;
+
+            if ($top && !$isDir) {
+                if (strcasecmp($name, 'manifest.json') === 0) {
+                    $plan['moves'][] = ['from' => $src, 'to' => $marker . '/manifest.json'];
+
+                    continue;
+                }
+                // Dokumentation hat im Serververzeichnis nichts verloren.
+                if (in_array($name, self::JUNK, true) || strcasecmp($name, 'README.md') === 0) {
+                    continue;
+                }
+            }
+
+            if ($isDir) {
+                if (isset($existing[$name])) {
+                    $this->mergeDir($list, $src, $dst, $marker, $plan, false);
+                } else {
+                    $plan['moves'][] = ['from' => $src, 'to' => $dst];
+                }
+
+                continue;
+            }
+
+            if (isset($existing[$name])) {
+                if ($this->preserved($dst)) {
+                    $plan['kept'][] = $dst;
+
+                    continue;
+                }
+                $plan['delete'][] = $dst;
+            }
+            $plan['moves'][] = ['from' => $src, 'to' => $dst];
+        }
+    }
+
+    private function preserved(string $target): bool
+    {
+        foreach (self::PRESERVE as $prefix) {
+            if (stripos($target, $prefix) === 0) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** Ordner weg, wenn er da ist. Fehlt er, ist auch gut. */

@@ -93,6 +93,8 @@ return [
         'yes' => 'ja',
         'no' => 'nein',
         'untracked' => 'not tracked',
+        'loader_present' => 'Mod loader present (:path). Mods that depend on it will not request it again.',
+        'loader_missing' => 'No mod loader found (:path is missing). Without it the server loads no mods.',
         'remove_named' => 'remove :mod',
         'remove' => 'remove',
         'remove_confirm' => 'Really delete :mod from the server?',

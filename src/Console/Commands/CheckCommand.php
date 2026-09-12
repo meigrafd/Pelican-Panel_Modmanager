@@ -70,6 +70,11 @@ class CheckCommand extends Command
 
             $index = $scanner->index($server, $profile, true);
             $this->line('  Mods             ' . $index['note']);
+            if (($index['loader']['marker'] ?? '') !== '') {
+                $this->line('  Modlader         ' . (($index['loader']['present'] ?? false)
+                    ? 'vorhanden (' . $index['loader']['marker'] . ')'
+                    : 'NICHT gefunden (' . $index['loader']['marker'] . ' fehlt)'));
+            }
 
             // Genau der Aufruf, den auch der Scheduler macht - nur ohne alles,
             // was danach kaeme. Was hier steht, wuerde dort einen Neustart

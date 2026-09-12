@@ -112,6 +112,61 @@ ok('BepInEx/ schlaegt plugins/', $installer->classify([
     entryDir('BepInEx'), entryDir('plugins'), entryFile('manifest.json'),
 ])['layout'] === 'root');
 
+echo "\n=== Zusammenfuehren ins Serververzeichnis\n";
+
+// Nachgebauter Server: BepInEx liegt schon (vom Egg), mit Mods in plugins/
+// und einer angepassten config/. Das Paket im Zwischenordner bringt core/,
+// config/, patchers/ und die Dateien fuers Wurzelverzeichnis mit.
+$tree = [
+    '' => [entryDir('BepInEx'), entryFile('valheim_server.x86_64'), entryFile('doorstop_config.ini')],
+    'BepInEx' => [entryDir('core'), entryDir('plugins'), entryDir('config')],
+    'BepInEx/core' => [entryFile('BepInEx.dll'), entryFile('0Harmony.dll')],
+    'BepInEx/plugins' => [entryDir('Tristan-ValheimRcon')],
+    'BepInEx/config' => [entryFile('BepInEx.cfg')],
+    'tmp' => [entryDir('BepInEx'), entryFile('doorstop_config.ini'), entryFile('winhttp.dll'),
+        entryFile('manifest.json'), entryFile('README.md'), entryFile('icon.png')],
+    'tmp/BepInEx' => [entryDir('core'), entryDir('config'), entryDir('patchers')],
+    'tmp/BepInEx/core' => [entryFile('BepInEx.dll'), entryFile('MonoMod.dll')],
+    'tmp/BepInEx/config' => [entryFile('BepInEx.cfg')],
+    'tmp/BepInEx/patchers' => [entryFile('x.dll')],
+];
+$list = fn (string $p): array => $tree[$p] ?? [];
+$marker = 'BepInEx/plugins/denikson-BepInExPack_Valheim';
+$plan = $installer->planMerge($list, 'tmp', $marker);
+$moves = array_column($plan['moves'], 'to', 'from');
+
+ok('vorhandener Ordner wird nicht geloescht', !in_array('BepInEx', $plan['delete'], true) && !in_array('BepInEx/core', $plan['delete'], true));
+ok('plugins/ mit den Mods bleibt unberuehrt', !array_filter(array_merge($plan['delete'], array_values($moves)),
+    fn ($p) => str_contains($p, 'Tristan-ValheimRcon') || $p === 'BepInEx/plugins'));
+ok('vorhandene Datei wird ersetzt', in_array('BepInEx/core/BepInEx.dll', $plan['delete'], true)
+    && ($moves['tmp/BepInEx/core/BepInEx.dll'] ?? '') === 'BepInEx/core/BepInEx.dll');
+ok('neue Datei im vorhandenen Ordner wird nur verschoben', !in_array('BepInEx/core/MonoMod.dll', $plan['delete'], true)
+    && ($moves['tmp/BepInEx/core/MonoMod.dll'] ?? '') === 'BepInEx/core/MonoMod.dll');
+ok('fehlender Ordner wird am Stueck verschoben', ($moves['tmp/BepInEx/patchers'] ?? '') === 'BepInEx/patchers'
+    && !isset($moves['tmp/BepInEx/patchers/x.dll']));
+ok('Config des Operators bleibt liegen', in_array('BepInEx/config/BepInEx.cfg', $plan['kept'], true)
+    && !isset($moves['tmp/BepInEx/config/BepInEx.cfg']) && !in_array('BepInEx/config/BepInEx.cfg', $plan['delete'], true));
+ok('Datei im Wurzelverzeichnis wird ersetzt', in_array('doorstop_config.ini', $plan['delete'], true)
+    && ($moves['tmp/doorstop_config.ini'] ?? '') === 'doorstop_config.ini');
+ok('manifest.json geht in den Marker-Ordner', ($moves['tmp/manifest.json'] ?? '') === $marker . '/manifest.json');
+ok('  und der Marker-Ordner wird angelegt', in_array($marker, $plan['dirs'], true));
+ok('README und icon bleiben im Zwischenordner', !isset($moves['tmp/README.md']) && !isset($moves['tmp/icon.png']));
+ok('Spieldateien werden nicht angefasst', !in_array('valheim_server.x86_64', $plan['delete'], true));
+
+// Leerer Server: alles wird am Stueck verschoben, nichts geloescht.
+$plan = $installer->planMerge(fn (string $p): array => str_starts_with($p, 'tmp') ? ($tree[$p] ?? []) : [], 'tmp', $marker);
+$moves = array_column($plan['moves'], 'to', 'from');
+ok('leerer Server: BepInEx/ am Stueck', ($moves['tmp/BepInEx'] ?? '') === 'BepInEx' && $plan['delete'] === [] && $plan['kept'] === []);
+
+echo "\n=== Modlader als Abhaengigkeit\n";
+
+$r = new PackageResolver();
+$valheim = $GLOBALS['real_config']['profiles']['valheim'];
+ok('BepInExPack_Valheim liefert den Lader', $r->providesLoader('BepInExPack_Valheim', $valheim));
+ok('BepInExPack_V_Rising ebenso (Praefix)', $r->providesLoader('BepInExPack_V_Rising', $valheim));
+ok('ValheimRcon nicht', !$r->providesLoader('ValheimRcon', $valheim));
+ok('Profil ohne loader: nie', !$r->providesLoader('BepInExPack_Valheim', $GLOBALS['real_config']['profiles']['project-zomboid']));
+
 echo "\n=== Eingaben lesen\n";
 
 $r = new PackageResolver();

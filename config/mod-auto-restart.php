@@ -34,6 +34,14 @@ return [
     |                Dann kann nichts automatisch zugeordnet werden; solche
     |                Mods werden angezeigt, aber nie geprueft.
     |
+    |   loader       Woran man den Modlader erkennt (`marker`, ein Ordner), auch
+    |                wenn ihn das Egg installiert hat und keine manifest.json
+    |                dazu existiert; und welche Pakete ihn liefern (`packages`,
+    |                Praefixe des Paketnamens). Liegt der marker da und nennt
+    |                ein Mod so ein Paket als Abhaengigkeit, gilt sie als
+    |                erfuellt. Ausdruecklich per URL wird er trotzdem
+    |                installiert - zusammengefuehrt, nicht ersetzt.
+    |
     |   sources      Welche Repositorys dieses Spiel fuehren. Der Schluessel ist
     |                der Name in der Auswahl, der Wert die Basis-URL. Bei
     |                Thunderstore ist die URL fuer ALLE Spiele dieselbe: der
@@ -53,6 +61,10 @@ return [
             'app_id' => '896660',
             'mods_path' => 'BepInEx/plugins',
             'layout' => 'thunderstore',
+            'loader' => [
+                'marker' => 'BepInEx/core',
+                'packages' => ['BepInExPack'],
+            ],
             'sources' => [
                 'thunderstore' => 'https://thunderstore.io',
                 'hexium' => 'https://valheim.hexium.gg',
@@ -111,6 +123,10 @@ return [
             'app_id' => '1829350',
             'mods_path' => 'BepInEx/plugins',
             'layout' => 'thunderstore',
+            'loader' => [
+                'marker' => 'BepInEx/core',
+                'packages' => ['BepInExPack'],
+            ],
             'sources' => [
                 'thunderstore' => 'https://thunderstore.io',
             ],
@@ -129,6 +145,10 @@ return [
             'app_id' => '1963720',
             'mods_path' => 'BepInEx/plugins',
             'layout' => 'thunderstore',
+            'loader' => [
+                'marker' => 'BepInEx/core',
+                'packages' => ['BepInExPack'],
+            ],
             'sources' => [
                 'thunderstore' => 'https://thunderstore.io',
             ],
@@ -144,6 +164,10 @@ return [
             'app_id' => '2667530',
             'mods_path' => 'BepInEx/plugins',
             'layout' => 'thunderstore',
+            'loader' => [
+                'marker' => 'BepInEx/core',
+                'packages' => ['BepInExPack'],
+            ],
             'sources' => [
                 'thunderstore' => 'https://thunderstore.io',
                 'hexium' => 'https://sunkenland.hexium.gg',
@@ -187,6 +211,10 @@ return [
             'app_id' => null,
             'mods_path' => 'BepInEx/plugins',
             'layout' => 'thunderstore',
+            'loader' => [
+                'marker' => 'BepInEx/core',
+                'packages' => ['BepInExPack'],
+            ],
             'sources' => [
                 'thunderstore' => 'https://thunderstore.io',
             ],

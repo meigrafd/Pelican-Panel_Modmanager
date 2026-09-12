@@ -73,6 +73,9 @@ class AutoRestart extends Page
 
     public string $modsNote = '';
 
+    /** @var array<string,mixed> Modlader auf dem Server (siehe ModScanner) */
+    public array $loader = ['present' => false, 'marker' => ''];
+
     /**
      * Abbildung Formularfeld -> echter Mod-Name.
      *
@@ -533,6 +536,19 @@ class AutoRestart extends Page
                             ->action('clearPlan'),
                     ]),
 
+                // Der Lader steht nicht in der Liste, weil er keine manifest.json
+                // hat, wenn ihn das Egg installiert hat. Da ist er trotzdem, und
+                // das soll man sehen - sonst wundert man sich, warum der Plan
+                // BepInEx nicht mit aufnimmt.
+                TextEntry::make('loader_state')
+                    ->hiddenLabel()
+                    ->columnSpanFull()
+                    ->visible(fn () => (string) ($this->loader['marker'] ?? '') !== '')
+                    ->color(fn () => ($this->loader['present'] ?? false) ? 'success' : 'gray')
+                    ->state(fn () => ($this->loader['present'] ?? false)
+                        ? trans('mar::messages.mods.loader_present', ['path' => $this->loader['marker'] ?? ''])
+                        : trans('mar::messages.mods.loader_missing', ['path' => $this->loader['marker'] ?? ''])),
+
                 Fieldset::make(trans('mar::messages.mods.installed'))
                     ->columnSpanFull()
                     ->columns(1)
@@ -786,6 +802,7 @@ class AutoRestart extends Page
         $index = app(ModScanner::class)->index($server, $this->profile);
         $this->mods = $index['mods'];
         $this->modsNote = $index['note'];
+        $this->loader = (array) ($index['loader'] ?? ['present' => false, 'marker' => '']);
 
         // Zwei Schalter nach innen, ein Auswahlfeld nach aussen.
         $auto['watch'] = ($auto['check_mods'] ?? true) && ($auto['check_game'] ?? true)
@@ -1008,7 +1025,9 @@ class AutoRestart extends Page
             $installed[$mod['full_name']] = ['version' => $mod['version']];
         }
 
-        $resolved = app(PackageResolver::class)->resolve($input, $this->profile, $source, $installed);
+        $resolved = app(PackageResolver::class)->resolve(
+            $input, $this->profile, $source, $installed, (bool) ($this->loader['present'] ?? false)
+        );
 
         if (!$resolved['ok']) {
             Notification::make()->title($resolved['error'])->danger()->send();

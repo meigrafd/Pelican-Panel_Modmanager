@@ -93,6 +93,8 @@ return [
         'yes' => 'ja',
         'no' => 'nein',
         'untracked' => 'nicht verfolgt',
+        'loader_present' => 'Modlader vorhanden (:path). Mods, die ihn als Abhaengigkeit nennen, fordern ihn nicht erneut an.',
+        'loader_missing' => 'Kein Modlader gefunden (:path fehlt). Ohne ihn laedt der Server keine Mods.',
         'remove_named' => ':mod entfernen',
         'remove' => 'entfernen',
         'remove_confirm' => ':mod wirklich vom Server loeschen?',

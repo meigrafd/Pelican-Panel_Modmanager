@@ -40,7 +40,8 @@ class ModScanner
         if ($path === '') {
             // Profil ohne Mod-Ordner (etwa Project Zomboid, dessen Mods aus dem
             // Workshop kommen). Kein Fehler: es gibt schlicht nichts zu pruefen.
-            return ['ok' => true, 'mods' => [], 'note' => 'Fuer dieses Profil ist keine Mod-Ueberwachung eingerichtet.'];
+            return ['ok' => true, 'mods' => [], 'loader' => ['present' => false, 'marker' => ''],
+                'note' => 'Fuer dieses Profil ist keine Mod-Ueberwachung eingerichtet.'];
         }
 
         $key = "mar:index:{$server->id}:" . md5($path);
@@ -52,7 +53,12 @@ class ModScanner
             }
         }
 
-        $result = $this->scan($server, $path, (string) ($profile['layout'] ?? 'thunderstore'));
+        $result = $this->scan(
+            $server,
+            $path,
+            (string) ($profile['layout'] ?? 'thunderstore'),
+            trim((string) (($profile['loader'] ?? [])['marker'] ?? ''), '/')
+        );
 
         Cache::put($key, $result, now()->addMinutes(
             max(1, (int) config('mod-auto-restart.cache.index_minutes', 10))
@@ -61,15 +67,31 @@ class ModScanner
         return $result;
     }
 
-    /** @return array{ok:bool,mods:array<int,array<string,mixed>>,note:string} */
-    private function scan(Server $server, string $path, string $layout): array
+    /** @return array{ok:bool,mods:array<int,array<string,mixed>>,loader:array{present:bool,marker:string},note:string} */
+    private function scan(Server $server, string $path, string $layout, string $marker): array
     {
+        // Der Modlader selbst liegt nicht im Mod-Ordner, sondern daneben
+        // (BepInEx/core), und wenn ihn das Egg installiert hat, gibt es
+        // keine manifest.json dazu. Da ist er trotzdem - und ein Mod, das
+        // ihn als Abhaengigkeit nennt, darf ihn nicht noch einmal anfordern.
+        $loader = ['present' => false, 'marker' => $marker];
+        if ($marker !== '') {
+            try {
+                $this->files->setServer($server)->getDirectory('/' . $marker);
+                $loader['present'] = true;
+            } catch (\Throwable $e) {
+                // Nicht vorhanden oder nicht lesbar: beides heisst "nicht gefunden",
+                // und darauf hin wird nichts installiert, nur angezeigt.
+            }
+        }
+
         try {
             $entries = $this->files->setServer($server)->getDirectory('/' . $path);
         } catch (\Throwable $e) {
             return [
                 'ok' => false,
                 'mods' => [],
+                'loader' => $loader,
                 'note' => $path . ' nicht lesbar. Stimmt der Pfad, und wurde der Server schon einmal gestartet?',
             ];
         }
@@ -125,6 +147,7 @@ class ModScanner
         return [
             'ok' => true,
             'mods' => $mods,
+            'loader' => $loader,
             'note' => $mods ? count($mods) . ' Mods in ' . $path . ' gefunden.' : 'Keine Mods in ' . $path . '.',
         ];
     }

@@ -1,5 +1,30 @@
 # Änderungen
 
+## 0.4.3
+
+BepInEx als Abhängigkeit, wenn es das Egg schon installiert hat.
+
+- **Vorhandener Modlader wird erkannt.** Der Scanner prüft, ob `BepInEx/core`
+  liegt, auch ohne `manifest.json`. Die Seite und `mar:check` zeigen es an.
+- **Abhängigkeit gilt als erfüllt.** Nennt ein Mod `BepInExPack…` als
+  Abhängigkeit und der Lader ist da, überspringt der Plan es mit dem Hinweis
+  „Version unbekannt“. Vorher stand BepInExPack in jedem Plan, und die
+  Installation brach mit „destination already exists“ ab, weil `BepInEx/`
+  schon lag. Ausdrücklich per URL wird es weiterhin installiert.
+- **Installation ins Serververzeichnis führt zusammen statt zu verschieben.**
+  Ordner werden angelegt, nie gelöscht; Dateien einzeln ersetzt. `plugins/`
+  mit den Mods bleibt unberührt, ebenso vorhandene Dateien in
+  `BepInEx/config/`, damit ein Update die Einstellungen nicht überschreibt.
+- Die `manifest.json` solcher Pakete landet als Marker unter
+  `BepInEx/plugins/<Autor-Paket>/`, ein Ordner ohne DLL. Damit kennt der
+  Scanner Namen und Version, Updates des Laders werden erkannt, und „kein
+  Herunterstufen“ gilt auch für ihn. „Entfernen“ löscht nur diesen Marker; der
+  Lader selbst bleibt liegen.
+- Profile haben dafür einen Block `loader` (Marker-Ordner und Paket-Präfixe).
+  Alle BepInEx-Spiele sind eingetragen.
+- Tests: Zusammenführungsplan gegen einen nachgebauten Server, Lader-Erkennung
+  am Paketnamen.
+
 ## 0.4.2
 
 - Nachrichtenfelder ließen sich nicht leeren: Feld geleert, gespeichert, und

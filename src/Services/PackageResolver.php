@@ -46,6 +46,7 @@ class PackageResolver
      * @param  string  $input  URL, "Autor-Paket" oder "Autor/Paket"
      * @param  array<string,mixed>  $profile
      * @param  array<string,array<string,mixed>>  $installed  full_name => ['version' => ...]
+     * @param  bool  $loaderPresent  Der Modlader liegt auf dem Server (siehe ModScanner)
      * @return array{
      *   ok: bool,
      *   error: ?string,
@@ -55,7 +56,7 @@ class PackageResolver
      *   warnings: array<int,string>
      * }
      */
-    public function resolve(string $input, array $profile, string $source, array $installed = []): array
+    public function resolve(string $input, array $profile, string $source, array $installed = [], bool $loaderPresent = false): array
     {
         $blank = ['ok' => false, 'error' => null, 'root' => null, 'install' => [], 'skipped' => [], 'warnings' => []];
 
@@ -84,7 +85,7 @@ class PackageResolver
         $skipped = [];
         $warnings = [];
 
-        $this->walk($root, $base, $installed, $install, $skipped, $warnings, 0);
+        $this->walk($root, $base, $installed, $install, $skipped, $warnings, 0, $profile, $loaderPresent);
 
         return [
             'ok' => true,
@@ -108,7 +109,7 @@ class PackageResolver
      * @param  array<int,array<string,mixed>>  $skipped
      * @param  array<int,string>  $warnings
      */
-    private function walk(array $package, string $base, array $installed, array &$install, array &$skipped, array &$warnings, int $depth): void
+    private function walk(array $package, string $base, array $installed, array &$install, array &$skipped, array &$warnings, int $depth, array $profile, bool $loaderPresent): void
     {
         $full = $package['namespace'] . '-' . $package['name'];
 
@@ -132,6 +133,16 @@ class PackageResolver
             } else {
                 $install[] = $package + ['full_name' => $full, 'action' => 'update', 'from' => $have];
             }
+        } elseif ($depth > 0 && $loaderPresent && $this->providesLoader((string) $package['name'], $profile)) {
+            // Der Lader liegt schon da - vom Egg oder von Hand, ohne
+            // manifest.json und damit ohne bekannte Version. Als Abhaengigkeit
+            // gilt er als erfuellt: eine laufende Installation zu
+            // ueberschreiben, weil ein Mod eine Versionsnummer nennt, waere
+            // genau das Herunterstufen, das sonst ueberall verboten ist - nur
+            // blind. Ausdruecklich per URL (Tiefe 0) wird er weiterhin
+            // installiert, dann zusammengefuehrt.
+            $skipped[] = ['full_name' => $full, 'version' => '?',
+                'why' => 'Modlader liegt schon auf dem Server (vom Egg oder von Hand), Version unbekannt'];
         } else {
             $install[] = $package + ['full_name' => $full, 'action' => 'install', 'from' => null];
         }
@@ -167,8 +178,29 @@ class PackageResolver
                     . ', die Quelle fuehrt nur ' . $child['version'] . '.';
             }
 
-            $this->walk($child, $base, $installed, $install, $skipped, $warnings, $depth + 1);
+            $this->walk($child, $base, $installed, $install, $skipped, $warnings, $depth + 1, $profile, $loaderPresent);
         }
+    }
+
+    /**
+     * Liefert dieses Paket den Modlader des Profils?
+     *
+     * Praefix-Vergleich auf den Paketnamen, weil jedes Spiel sein eigenes
+     * Paket hat (BepInExPack_Valheim, BepInExPack_V_Rising, ...) und der
+     * Autor je nach Spiel wechselt.
+     *
+     * @param  array<string,mixed>  $profile
+     */
+    public function providesLoader(string $name, array $profile): bool
+    {
+        foreach ((array) (($profile['loader'] ?? [])['packages'] ?? []) as $prefix) {
+            $prefix = (string) $prefix;
+            if ($prefix !== '' && stripos($name, $prefix) === 0) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // -------------------------------------------------------------- eingabe
