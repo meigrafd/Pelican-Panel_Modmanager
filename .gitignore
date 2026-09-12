@@ -1,0 +1,13 @@
+# Das fertige Zip gehoert NICHT ins Repository. Die GitHub-Action baut es bei
+# jedem Tag und haengt es ans Release. Ein eingecheckter Stand veraltet mit dem
+# ersten Commit danach, und niemand merkt es - weil er trotzdem herunterladbar
+# bleibt.
+*.zip
+build/
+
+# Pelican traegt in der INSTALLIERTEN Kopie einen meta-Block in plugin.json ein
+# (installiert ja/nein, Ladereihenfolge). Der gehoert in die Installation, nicht
+# hierher. Wer am Panel entwickelt, sollte ihn vor dem Commit entfernen.
+plugin.json.bak
+
+.DS_Store
