@@ -215,10 +215,13 @@ class StateStore
                     self::AUTO_MIN[$key] ?? 0,
                     min(self::AUTO_MAX[$key] ?? PHP_INT_MAX, (int) $value)
                 );
-            } elseif (is_string($value)) {
+            } elseif ($value === null || is_string($value)) {
                 // Eine leere Nachricht heisst "nichts sagen" und ist eine
                 // zulaessige Wahl, deshalb wird hier nur der Typ erzwungen.
-                $out[$key] = mb_substr(trim($value), 0, 400);
+                // Filament liefert fuer ein geleertes Textfeld null, nicht "".
+                // Wuerde null uebersprungen, kaeme beim Zurueckladen die
+                // Vorgabe wieder, und eine Nachricht liesse sich nie abschalten.
+                $out[$key] = mb_substr(trim((string) $value), 0, 400);
             }
         }
 

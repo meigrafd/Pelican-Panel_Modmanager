@@ -1,5 +1,15 @@
 # Änderungen
 
+## 0.4.2
+
+- Nachrichtenfelder ließen sich nicht leeren: Feld geleert, gespeichert, und
+  die Vorgabe stand wieder da. Filament liefert für ein geleertes Textfeld
+  `null`, der Speicher nahm aber nur Zeichenketten an und ließ `null` liegen.
+  `null` gilt jetzt wie ein leerer Text, also „nichts sagen". Betroffen waren
+  alle vier Nachrichten.
+- Test dafür in `tests/PhaseTest.php`. Der Speicher war dort bisher nicht
+  abgedeckt, weil die Phasen-Tests ihn durch einen Ersatz austauschen.
+
 ## 0.4.1
 
 Beim Umbau auf Filament-Bausteine in 0.4.0 sind zwei Dinge stillschweigend

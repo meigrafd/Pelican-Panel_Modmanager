@@ -278,6 +278,20 @@ $svc = service(store());
 ok('AUTO_UPDATE=1 wird erkannt', $svc->autoUpdateEnabled(new Server('1')) === true);
 ok('AUTO_UPDATE=0 wird erkannt', $svc->autoUpdateEnabled(new Server('0')) === false);
 
+echo "\n=== Speicher: geleerte Textfelder\n";
+
+// Filament liefert fuer ein geleertes Textfeld null, nicht "". Der Speicher
+// muss beides als "nichts sagen" lesen - sonst kommt beim Zurueckladen die
+// Vorgabe wieder, und die Nachricht laesst sich nie abschalten. Genau so
+// sah es auf dem Panel aus: Feld geleert, gespeichert, Vorgabe stand wieder da.
+$auto = new ReflectionMethod(StateStore::class, 'auto');
+$read = fn (array $stored): array => $auto->invoke(store(), $stored);
+ok('null leert die Nachricht', $read(['msg_back' => null])['msg_back'] === '');
+ok('"" leert die Nachricht', $read(['msg_back' => ''])['msg_back'] === '');
+ok('nur Leerzeichen leeren die Nachricht', $read(['msg_back' => '   '])['msg_back'] === '');
+ok('fehlender Schluessel behaelt die Vorgabe', $read([])['msg_back'] === StateStore::AUTO_DEFAULTS['msg_back']);
+ok('null bei einer Zahl behaelt die Vorgabe', $read(['check_minutes' => null])['check_minutes'] === StateStore::AUTO_DEFAULTS['check_minutes']);
+
 echo "\n";
 printf("ERGEBNIS: %d bestanden, %d fehlgeschlagen\n", $passed, $failed);
 exit($failed > 0 ? 1 : 0);
