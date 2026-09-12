@@ -107,6 +107,21 @@ class ModScanner
 
             $manifest = $this->manifest($server, $path . '/' . $name);
             if ($manifest === null) {
+                // Ohne manifest.json gibt es keine Version und keinen Autor,
+                // also nichts zu pruefen. Angezeigt wird der Ordner trotzdem:
+                // ein Mod, das da liegt und in der Liste fehlt, sieht aus wie
+                // ein Fehler der Installation - und laesst sich so wenigstens
+                // entfernen oder neu installieren.
+                $mods[] = [
+                    'full_name' => $name,
+                    'namespace' => '',
+                    'name' => $name,
+                    'version' => '',
+                    'folder' => $name,
+                    'dependencies' => [],
+                    'tracked' => false,
+                ];
+
                 continue;
             }
 

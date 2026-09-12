@@ -166,6 +166,8 @@ class Installer
                 $shape = $this->classify($entries);
             }
 
+            $root = $temp;
+            $rootEntries = $entries;
             if ($shape['layout'] === 'plugins') {
                 $temp .= '/' . $shape['from'];
                 $entries = $repo->getDirectory('/' . $temp);
@@ -184,6 +186,22 @@ class Installer
                 $this->mergeInto($server, $temp, $target);
             } else {
                 $this->moveInto($server, $temp, $target, $entries, $shape['layout']);
+
+                if ($shape['layout'] === 'plugins' && $this->hasFile($rootEntries, 'manifest.json')) {
+                    // Die manifest.json liegt NEBEN plugins/, nicht darin. Ohne
+                    // sie im Zielordner sieht der Scanner das Mod nie - es war
+                    // installiert, tauchte aber weder in der Liste auf noch in
+                    // der Ueberwachung. Genau so ist YamlDotNet verschwunden.
+                    try {
+                        $repo->renameFiles(null, [[
+                            'from' => $root . '/manifest.json',
+                            'to' => $target . '/manifest.json',
+                        ]]);
+                    } catch (\Throwable $e) {
+                        // Liegt schon eine im Ziel (aus plugins/ selbst), ist die
+                        // die richtige. Nicht der Fall, der die Installation kippt.
+                    }
+                }
             }
             $this->wipe($server, self::TEMP . '/' . $full);
 
@@ -370,6 +388,18 @@ class Installer
             }
             $plan['moves'][] = ['from' => $src, 'to' => $dst];
         }
+    }
+
+    /** @param  array<int,array<string,mixed>>  $entries */
+    private function hasFile(array $entries, string $name): bool
+    {
+        foreach ($entries as $entry) {
+            if (strcasecmp((string) ($entry['name'] ?? ''), $name) === 0 && !(bool) ($entry['directory'] ?? false)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function preserved(string $target): bool

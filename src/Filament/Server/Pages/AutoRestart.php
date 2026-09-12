@@ -833,16 +833,22 @@ class AutoRestart extends Page
 
             $cells = [
                 TextEntry::make('mod_name_' . $i)
-                    ->label($i === 0 ? trans('mar::messages.mods.name') : '')
+                    ->label(trans('mar::messages.mods.name'))
+                    // Nur die erste Zeile traegt Spaltenueberschriften. Ein leerer
+                    // Text reicht dafuer nicht: Filament ersetzt ihn durch einen
+                    // aus dem Feldnamen gebauten ("Mod name 1").
+                    ->hiddenLabel($i > 0)
                     ->state($name)
                     ->columnSpan(2),
 
                 TextEntry::make('mod_version_' . $i)
-                    ->label($i === 0 ? trans('mar::messages.mods.version') : '')
+                    ->label(trans('mar::messages.mods.version'))
+                    ->hiddenLabel($i > 0)
                     ->state($mod['version'] ?: '—'),
 
                 TextEntry::make('mod_tracked_' . $i)
-                    ->label($i === 0 ? trans('mar::messages.mods.tracked') : '')
+                    ->label(trans('mar::messages.mods.tracked'))
+                    ->hiddenLabel($i > 0)
                     ->state($mod['tracked'] ? trans('mar::messages.mods.yes') : trans('mar::messages.mods.no'))
                     // Kein Autor im Ordnernamen: eine geratene Zuordnung wuerde
                     // ewig ein Update melden, das nie ankommt.
@@ -852,7 +858,8 @@ class AutoRestart extends Page
 
             if ($multi) {
                 $cells[] = Select::make('mod_sources.' . $key)
-                    ->label($i === 0 ? trans('mar::messages.mods.source') : '')
+                    ->label(trans('mar::messages.mods.source'))
+                    ->hiddenLabel($i > 0)
                     ->options(array_combine(array_keys($this->sources()), array_keys($this->sources())))
                     // Leer heisst: die globale Wahl oben gilt. Das ist die
                     // Vorgabe, keine fehlende Angabe.
@@ -881,7 +888,7 @@ class AutoRestart extends Page
                     ->modalHeading(trans('mar::messages.mods.remove_named', ['mod' => $name]))
                     ->modalDescription(trans('mar::messages.mods.remove_confirm', ['mod' => $name]))
                     ->action(fn () => $this->remove($name)),
-            ])->label($i === 0 ? ' ' : '');
+            ])->label(' ')->hiddenLabel($i > 0);
 
             $rows[] = Grid::make(['default' => 2, 'md' => $multi ? 6 : 5])
                 ->schema($cells);

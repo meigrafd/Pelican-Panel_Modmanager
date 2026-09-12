@@ -1,5 +1,20 @@
 # Änderungen
 
+## 0.5.1
+
+- **Mods mit `plugins/`-Aufbau fehlten nach der Installation in der Liste**
+  (YamlDotNet, Jotunn). Ihre `manifest.json` liegt neben `plugins/`, nicht
+  darin, und wurde nicht mitkopiert. Der Scanner fand deshalb keine Version
+  und ließ den Ordner ganz weg; das Mod war installiert, aber unsichtbar und
+  unüberwacht. Die Datei wird jetzt mitgenommen. Schon installierte Mods
+  dieser Art einmal neu installieren, dann sind sie verfolgt.
+- **Ordner ohne `manifest.json` werden angezeigt**, als „nicht verfolgt“.
+  Vorher fehlten sie stillschweigend, was wie ein Fehler der Installation
+  aussah.
+- Spaltenüberschriften der Mod-Liste standen ab der zweiten Zeile als
+  „Mod name 1“ da. Ein leerer Text reicht Filament nicht, es baut dann einen
+  aus dem Feldnamen. Jetzt ausgeblendet.
+
 ## 0.5.0
 
 Mods lassen sich jetzt über die Seite konfigurieren.
