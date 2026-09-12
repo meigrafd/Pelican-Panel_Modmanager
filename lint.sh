@@ -30,4 +30,8 @@ echo "== Installation: Aufbau-Erkennung und Abhaengigkeiten"
 php tests/InstallTest.php
 
 echo
+echo "== Konfigurationsdateien: Lesen und Zurueckschreiben"
+php tests/ConfigTest.php
+
+echo
 echo "Alles durch."

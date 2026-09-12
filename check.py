@@ -99,7 +99,7 @@ def main():
     # verloren; 'watch' und 'add_input' sind absichtlich nur Oberflaeche und
     # werden in toAuto() wieder entfernt.
     form = set(re.findall(r"(?:TextInput|Select|Toggle|Textarea)::make\('(\w+)'\)", page))
-    surface = {"watch", "add_input"}
+    surface = {"watch", "add_input", "config_file"}
     strays = sorted(f for f in form - surface if f not in defaults)
     check(not strays, "jedes Eingabefeld existiert in AUTO_DEFAULTS (%d)" % len(form), ", ".join(strays))
 

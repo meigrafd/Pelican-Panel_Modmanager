@@ -1,5 +1,32 @@
 # Änderungen
 
+## 0.5.0
+
+Mods lassen sich jetzt über die Seite konfigurieren.
+
+- **Konfigurations-Editor.** Neuer Abschnitt „Konfiguration der Mods“: Datei
+  aus `BepInEx/config` wählen, Formular bearbeiten, speichern. Das Formular
+  entsteht aus der Datei selbst, denn BepInEx schreibt zu jedem Wert
+  Beschreibung, Typ, Vorgabe und erlaubte Werte als Kommentar. Schalter für
+  Boolean, Auswahl für Aufzählungen, Textfeld für Zahlen und Text, mit
+  Vorgabe und erlaubtem Bereich als Hilfetext. Kein Mod wird beim Namen
+  gekannt.
+- **Zurückgeschrieben wird nur die Wertzeile.** Kommentare, Reihenfolge,
+  Leerzeilen und Zeilenenden bleiben Byte für Byte erhalten; die Tests prüfen
+  genau das. Ein Mod, das seine Datei beim Start selbst anfasst, findet sie
+  so vor, wie es sie hinterlassen hat.
+- **Prüfung vor dem Schreiben.** Ganze Zahl, Zahl im erlaubten Bereich,
+  erlaubter Aufzählungswert. Bei Fehlern wird nichts geschrieben, die Meldung
+  nennt Feld und Grund.
+- **Knopf an der Mod-Zeile.** Lässt sich eine Datei einem installierten Mod
+  zuordnen (Plugin-Name aus der Kopfzeile gegen den Paketnamen), steht neben
+  „entfernen“ ein Knopf „konfigurieren“, der die Datei direkt öffnet.
+- Profile haben dafür `loader.config`; alle BepInEx-Spiele sind eingetragen.
+- Neue Testdatei `tests/ConfigTest.php`, in `lint.sh` als vierte Stufe.
+
+Nicht enthalten: Konfigurationsdateien anlegen. Sie entstehen beim ersten
+Start des Servers mit dem Mod; vorher gibt es nichts zu bearbeiten.
+
 ## 0.4.3
 
 BepInEx als Abhängigkeit, wenn es das Egg schon installiert hat.

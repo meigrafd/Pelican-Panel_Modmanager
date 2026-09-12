@@ -41,6 +41,8 @@ return [
     |                ein Mod so ein Paket als Abhaengigkeit, gilt sie als
     |                erfuellt. Ausdruecklich per URL wird er trotzdem
     |                installiert - zusammengefuehrt, nicht ersetzt.
+    |                `config` ist der Ordner mit den Konfigurationsdateien
+    |                der Mods; die Seite bietet dafuer einen Editor an.
     |
     |   sources      Welche Repositorys dieses Spiel fuehren. Der Schluessel ist
     |                der Name in der Auswahl, der Wert die Basis-URL. Bei
@@ -64,6 +66,7 @@ return [
             'loader' => [
                 'marker' => 'BepInEx/core',
                 'packages' => ['BepInExPack'],
+                'config' => 'BepInEx/config',
             ],
             'sources' => [
                 'thunderstore' => 'https://thunderstore.io',
@@ -126,6 +129,7 @@ return [
             'loader' => [
                 'marker' => 'BepInEx/core',
                 'packages' => ['BepInExPack'],
+                'config' => 'BepInEx/config',
             ],
             'sources' => [
                 'thunderstore' => 'https://thunderstore.io',
@@ -148,6 +152,7 @@ return [
             'loader' => [
                 'marker' => 'BepInEx/core',
                 'packages' => ['BepInExPack'],
+                'config' => 'BepInEx/config',
             ],
             'sources' => [
                 'thunderstore' => 'https://thunderstore.io',
@@ -167,6 +172,7 @@ return [
             'loader' => [
                 'marker' => 'BepInEx/core',
                 'packages' => ['BepInExPack'],
+                'config' => 'BepInEx/config',
             ],
             'sources' => [
                 'thunderstore' => 'https://thunderstore.io',
@@ -214,6 +220,7 @@ return [
             'loader' => [
                 'marker' => 'BepInEx/core',
                 'packages' => ['BepInExPack'],
+                'config' => 'BepInEx/config',
             ],
             'sources' => [
                 'thunderstore' => 'https://thunderstore.io',

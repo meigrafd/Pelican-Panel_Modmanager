@@ -100,6 +100,27 @@ return [
         'remove_confirm' => ':mod wirklich vom Server loeschen?',
     ],
 
+    'config' => [
+        'heading' => 'Konfiguration der Mods',
+        'intro' => 'Die Einstellungen, die jedes Mod in seiner Datei unter BepInEx/config ablegt. Das Formular entsteht aus der Datei selbst: Beschreibung, Vorgabe und erlaubte Werte stammen vom Mod. Gespeichert wird nur der Wert, der Rest der Datei bleibt unangetastet.',
+        'file_placeholder' => 'Datei waehlen',
+        'load' => 'Oeffnen',
+        'save' => 'Konfiguration speichern',
+        'close' => 'Schliessen',
+        'none' => 'Keine Konfigurationsdateien in :path. Sie entstehen beim ersten Start des Servers mit dem jeweiligen Mod.',
+        'no_section' => 'Allgemein',
+        'default' => 'Vorgabe: :value.',
+        'range' => 'Erlaubt: :min bis :max.',
+        'flags' => 'Mehrere Werte, mit Komma getrennt: :values.',
+        'for_mod' => ':mod konfigurieren',
+        'unreadable' => 'Konfigurationsdatei nicht lesbar',
+        'invalid' => 'Nicht gespeichert – bitte pruefen',
+        'unchanged' => 'Nichts geaendert.',
+        'write_failed' => 'Konfiguration konnte nicht geschrieben werden',
+        'saved' => ':n Wert(e) gespeichert.',
+        'restart_hint' => 'Die meisten Mods lesen ihre Datei nur beim Start. Server neu starten, damit die Aenderung wirkt.',
+    ],
+
     'history' => [
         'heading' => 'Neustart-Historie',
         'intro' => 'Die letzten zwanzig Neustarts, die dieses Plugin ausgeloest hat.',

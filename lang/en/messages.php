@@ -100,6 +100,27 @@ return [
         'remove_confirm' => 'Really delete :mod from the server?',
     ],
 
+    'config' => [
+        'heading' => 'Mod configuration',
+        'intro' => 'The settings each mod keeps in its file under BepInEx/config. The form is built from the file itself: descriptions, defaults and allowed values come from the mod. Only the value is written back; the rest of the file stays untouched.',
+        'file_placeholder' => 'Choose a file',
+        'load' => 'Open',
+        'save' => 'Save configuration',
+        'close' => 'Close',
+        'none' => 'No configuration files in :path. They appear after the first server start with the respective mod.',
+        'no_section' => 'General',
+        'default' => 'Default: :value.',
+        'range' => 'Allowed: :min to :max.',
+        'flags' => 'Several values, separated by commas: :values.',
+        'for_mod' => 'Configure :mod',
+        'unreadable' => 'Configuration file could not be read',
+        'invalid' => 'Not saved – please check',
+        'unchanged' => 'Nothing changed.',
+        'write_failed' => 'Configuration could not be written',
+        'saved' => ':n value(s) saved.',
+        'restart_hint' => 'Most mods only read their file on startup. Restart the server for the change to take effect.',
+    ],
+
     'history' => [
         'heading' => 'Neustart-Historie',
         'intro' => 'Die letzten zwanzig Neustarts, die dieses Plugin ausgeloest hat.',

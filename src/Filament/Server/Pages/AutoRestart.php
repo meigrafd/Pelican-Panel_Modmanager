@@ -24,6 +24,8 @@ use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Meigrafd\ModAutoRestart\Services\AutoUpdateService;
 use Meigrafd\ModAutoRestart\Services\Compatibility;
+use Meigrafd\ModAutoRestart\Services\ConfigFile;
+use Meigrafd\ModAutoRestart\Services\ConfigStore;
 use Meigrafd\ModAutoRestart\Services\GameBuild;
 use Meigrafd\ModAutoRestart\Services\GameProfile;
 use Meigrafd\ModAutoRestart\Services\Installer;
@@ -75,6 +77,27 @@ class AutoRestart extends Page
 
     /** @var array<string,mixed> Modlader auf dem Server (siehe ModScanner) */
     public array $loader = ['present' => false, 'marker' => ''];
+
+    /** @var array<int,array<string,mixed>> Konfigurationsdateien im config-Ordner (siehe ConfigStore) */
+    public array $configFiles = [];
+
+    /** Pfad der Datei, die gerade im Editor steht. Leer: keine. */
+    public string $configFile = '';
+
+    /** @var array<string,mixed>|null die gelesene Datei (siehe ConfigFile::parse) */
+    public ?array $configDoc = null;
+
+    /**
+     * Adresse dieser Seite, beim ersten Aufruf gemerkt.
+     *
+     * Der Editor wird ueber einen Parameter in der Adresse geoeffnet und
+     * die Seite neu geladen, statt die Felder im laufenden Formular
+     * nachzuschieben. Filament baut das Schema je Anfrage einmal; Felder,
+     * die erst eine Aktion erzeugt, erschienen sonst erst beim naechsten
+     * Klick. Spaetere Livewire-Anfragen gehen an /livewire/update, deshalb
+     * muss die echte Adresse hier stehen.
+     */
+    public string $pageUrl = '';
 
     /**
      * Abbildung Formularfeld -> echter Mod-Name.
@@ -138,6 +161,8 @@ class AutoRestart extends Page
 
     public function mount(): void
     {
+        $this->pageUrl = request()->url();
+        $this->configFile = trim((string) request()->query('config', ''));
         $this->load();
     }
 
@@ -151,6 +176,7 @@ class AutoRestart extends Page
                 $this->statusSection(),
                 $this->settingsSection(),
                 $this->modsSection(),
+                $this->configSection(),
                 $this->historySection(),
             ]);
     }
@@ -557,6 +583,71 @@ class AutoRestart extends Page
             ]);
     }
 
+    /**
+     * Der Editor fuer die Konfigurationsdateien der Mods.
+     *
+     * Kein Mod wird hier beim Namen gekannt: BepInEx schreibt zu jedem Wert
+     * Beschreibung, Typ, Vorgabe und erlaubte Werte in die Datei, und daraus
+     * entsteht das Formular. Geschrieben wird nur die Wertzeile - Kommentare
+     * und Reihenfolge bleiben, wie das Mod sie hinterlassen hat.
+     */
+    private function configSection(): Section
+    {
+        $writable = $this->canWrite();
+
+        return Section::make(trans('mar::messages.config.heading'))
+            ->description(trans('mar::messages.config.intro'))
+            ->icon('tabler-adjustments')
+            ->collapsible()
+            ->collapsed($this->configDoc === null)
+            ->columnSpanFull()
+            ->visible(fn () => $this->configDir() !== '')
+            ->schema([
+                Grid::make(['default' => 1, 'md' => 4])
+                    ->columnSpanFull()
+                    ->visible(fn () => (bool) $this->configFiles)
+                    ->schema([
+                        Select::make('config_file')
+                            ->hiddenLabel()
+                            ->columnSpan(['default' => 1, 'md' => 3])
+                            ->options($this->configOptions())
+                            ->placeholder(trans('mar::messages.config.file_placeholder')),
+
+                        Actions::make([
+                            Action::make('load_config')
+                                ->label(trans('mar::messages.config.load'))
+                                ->icon('tabler-file-settings')
+                                ->action('loadConfig'),
+                        ]),
+                    ]),
+
+                TextEntry::make('config_none')
+                    ->hiddenLabel()
+                    ->columnSpanFull()
+                    ->visible(fn () => !$this->configFiles)
+                    ->color('gray')
+                    ->state(trans('mar::messages.config.none', ['path' => $this->configDir()])),
+
+                Section::make($this->configTitle())
+                    ->description(fn () => $this->configFile)
+                    ->columnSpanFull()
+                    ->visible(fn () => $this->configDoc !== null)
+                    ->schema($this->configFields($writable))
+                    ->footerActions([
+                        Action::make('save_config')
+                            ->label(trans('mar::messages.config.save'))
+                            ->icon('tabler-device-floppy')
+                            ->visible($writable)
+                            ->action('saveConfig'),
+
+                        Action::make('close_config')
+                            ->label(trans('mar::messages.config.close'))
+                            ->color('gray')
+                            ->action('closeConfig'),
+                    ]),
+            ]);
+    }
+
     private function historySection(): Section
     {
         return Section::make(trans('mar::messages.history.heading'))
@@ -576,6 +667,128 @@ class AutoRestart extends Page
     }
 
     // -------------------------------------------------------------- anzeige
+
+    private function configDir(): string
+    {
+        return trim((string) (($this->profile['loader'] ?? [])['config'] ?? ''), '/');
+    }
+
+    private function loadConfigFiles(Server $server): void
+    {
+        $this->configFiles = $this->configDir() === ''
+            ? []
+            : app(ConfigStore::class)->list($server, $this->configDir());
+
+        // Nur eine Datei aus der Liste darf in den Editor: der Parameter in
+        // der Adresse ist Eingabe von aussen, kein Pfad, dem man traut.
+        $known = array_column($this->configFiles, 'path');
+        if ($this->configFile !== '' && !in_array($this->configFile, $known, true)) {
+            $this->configFile = '';
+        }
+
+        $this->configDoc = null;
+        if ($this->configFile !== '') {
+            try {
+                $this->configDoc = app(ConfigStore::class)->read($server, $this->configFile);
+            } catch (\Throwable $e) {
+                $this->configFile = '';
+                Notification::make()->title(trans('mar::messages.config.unreadable'))->body($e->getMessage())->danger()->send();
+            }
+        }
+    }
+
+    /** @return array<string,string> Pfad => Anzeige */
+    private function configOptions(): array
+    {
+        $options = [];
+        foreach ($this->configFiles as $file) {
+            $options[$file['path']] = $file['plugin'] !== ''
+                ? $file['plugin'] . '  (' . $file['file'] . ')'
+                : $file['file'];
+        }
+
+        return $options;
+    }
+
+    /** Datei zu einem Mod aus der Liste, wenn sich eine zuordnen laesst. */
+    private function configFor(string $modName): ?string
+    {
+        $matcher = app(ConfigFile::class);
+        foreach ($this->configFiles as $file) {
+            if ($matcher->matches((string) $file['plugin'], $modName)) {
+                return (string) $file['path'];
+            }
+        }
+
+        return null;
+    }
+
+    private function configTitle(): string
+    {
+        if ($this->configDoc === null) {
+            return '';
+        }
+        $plugin = (string) ($this->configDoc['plugin'] ?: basename($this->configFile));
+        $version = (string) ($this->configDoc['version'] ?? '');
+
+        return $version !== '' ? $plugin . ' ' . $version : $plugin;
+    }
+
+    /**
+     * Ein Feld je Eintrag, gruppiert nach Abschnitt der Datei.
+     *
+     * Bewusst ohne Pruefregeln an den Feldern: das Formular ist dasselbe wie
+     * fuer die Einstellungen, und eine fehlerhafte Zahl hier duerfte nicht
+     * das Speichern dort blockieren. Geprueft wird in saveConfig().
+     *
+     * @return array<int,Fieldset>
+     */
+    private function configFields(bool $writable): array
+    {
+        if ($this->configDoc === null) {
+            return [];
+        }
+        $parser = app(ConfigFile::class);
+        $sections = [];
+
+        foreach ((array) $this->configDoc['entries'] as $i => $entry) {
+            $name = 'cfg_' . $i;
+            $help = trim((string) $entry['description']);
+            if ($entry['default'] !== null && $entry['default'] !== '') {
+                $help .= ($help !== '' ? ' ' : '') . trans('mar::messages.config.default', ['value' => $entry['default']]);
+            }
+            if ($entry['range'] !== null) {
+                $help .= ' ' . trans('mar::messages.config.range', ['min' => $entry['range'][0], 'max' => $entry['range'][1]]);
+            }
+            if ($entry['flags'] && $entry['acceptable']) {
+                $help .= ' ' . trans('mar::messages.config.flags', ['values' => implode(', ', $entry['acceptable'])]);
+            }
+
+            $field = match ($parser->kind($entry)) {
+                'toggle' => Toggle::make($name),
+                'select' => Select::make($name)
+                    ->options(array_combine($entry['acceptable'], $entry['acceptable']))
+                    ->selectablePlaceholder(false),
+                default => TextInput::make($name)
+                    ->placeholder((string) ($entry['default'] ?? '')),
+            };
+
+            $sections[$entry['section']][] = $field
+                ->label($entry['key'])
+                ->helperText($help !== '' ? $help : null)
+                ->disabled(!$writable);
+        }
+
+        $out = [];
+        foreach ($sections as $section => $fields) {
+            $out[] = Fieldset::make($section !== '' ? (string) $section : trans('mar::messages.config.no_section'))
+                ->columnSpanFull()
+                ->columns(['default' => 1, 'md' => 2])
+                ->schema($fields);
+        }
+
+        return $out;
+    }
 
     /** @return array<int,string> */
     private function planLines(): array
@@ -647,7 +860,17 @@ class AutoRestart extends Page
                     ->disabled(fn () => !$this->canWrite() || !$mod['tracked']);
             }
 
+            $configPath = $this->configFor((string) $mod['name']);
+
             $cells[] = Actions::make([
+                Action::make('configure_' . $i)
+                    ->label(trans('mar::messages.config.for_mod', ['mod' => $name]))
+                    ->icon('tabler-adjustments')
+                    ->iconButton()
+                    ->color('gray')
+                    ->visible(fn () => $configPath !== null)
+                    ->action(fn () => $this->openConfig((string) $configPath)),
+
                 Action::make('remove_' . $i)
                     ->label(trans('mar::messages.mods.remove'))
                     ->icon('tabler-trash')
@@ -803,6 +1026,7 @@ class AutoRestart extends Page
         $this->mods = $index['mods'];
         $this->modsNote = $index['note'];
         $this->loader = (array) ($index['loader'] ?? ['present' => false, 'marker' => '']);
+        $this->loadConfigFiles($server);
 
         // Zwei Schalter nach innen, ein Auswahlfeld nach aussen.
         $auto['watch'] = ($auto['check_mods'] ?? true) && ($auto['check_game'] ?? true)
@@ -819,6 +1043,15 @@ class AutoRestart extends Page
             $perMod[$key] = $auto['mod_sources'][$mod['full_name']] ?? null;
         }
         $auto['mod_sources'] = $perMod;
+
+        // Der Editor haengt am selben Formular; seine Werte muessen bei
+        // jedem fill() mit, sonst stehen die Felder nach dem Speichern leer.
+        $auto['config_file'] = $this->configFile;
+        foreach ((array) ($this->configDoc['entries'] ?? []) as $i => $entry) {
+            $auto['cfg_' . $i] = app(ConfigFile::class)->kind($entry) === 'toggle'
+                ? strcasecmp((string) $entry['value'], 'true') === 0
+                : $entry['value'];
+        }
 
         $this->form->fill($auto);
     }
@@ -845,7 +1078,12 @@ class AutoRestart extends Page
         }
         $data['mod_sources'] = $perMod;
 
-        unset($data['watch'], $data['add_input']);
+        unset($data['watch'], $data['add_input'], $data['config_file']);
+        foreach (array_keys($data) as $field) {
+            if (str_starts_with((string) $field, 'cfg_')) {
+                unset($data[$field]);
+            }
+        }
 
         return $data;
     }
@@ -1106,6 +1344,91 @@ class AutoRestart extends Page
             ->body(implode("\n", $done) . "\n\n" . trans('mar::messages.notify.restart_hint'))
             ->success()
             ->persistent()
+            ->send();
+    }
+
+    // ------------------------------------------------------- konfiguration
+
+    /** Die im Auswahlfeld gewaehlte Datei in den Editor holen. */
+    public function loadConfig(): void
+    {
+        $this->openConfig(trim((string) ($this->data['config_file'] ?? '')));
+    }
+
+    /** Seite mit dieser Datei im Editor neu laden (siehe $pageUrl). */
+    public function openConfig(string $path): void
+    {
+        if ($path === '' || $this->pageUrl === '') {
+            return;
+        }
+        $this->redirect($this->pageUrl . '?config=' . rawurlencode($path));
+    }
+
+    public function closeConfig(): void
+    {
+        if ($this->pageUrl === '') {
+            return;
+        }
+        $this->redirect($this->pageUrl);
+    }
+
+    /** Die Werte aus dem Editor in die Datei schreiben. */
+    public function saveConfig(): void
+    {
+        abort_unless($this->canWrite(), 403);
+        if ($this->configDoc === null || $this->configFile === '') {
+            return;
+        }
+
+        $parser = app(ConfigFile::class);
+        $values = [];
+        $errors = [];
+
+        // Roh aus dem Formularzustand, nicht ueber getState(): das wuerde das
+        // ganze Formular pruefen, und hier geht es nur um diese Datei.
+        foreach ((array) $this->configDoc['entries'] as $i => $entry) {
+            $result = $parser->normalize($entry, $this->data['cfg_' . $i] ?? '');
+            if ($result['error'] !== null) {
+                $errors[] = $result['error'];
+
+                continue;
+            }
+            if ($result['value'] !== (string) $entry['value']) {
+                $values[$i] = $result['value'];
+            }
+        }
+
+        if ($errors) {
+            Notification::make()
+                ->title(trans('mar::messages.config.invalid'))
+                ->body(implode("\n", $errors))
+                ->danger()
+                ->persistent()
+                ->send();
+
+            return;
+        }
+
+        if (!$values) {
+            Notification::make()->title(trans('mar::messages.config.unchanged'))->send();
+
+            return;
+        }
+
+        $server = $this->getServer();
+        try {
+            app(ConfigStore::class)->write($server, $this->configFile, $parser->render($this->configDoc, $values));
+        } catch (\Throwable $e) {
+            Notification::make()->title(trans('mar::messages.config.write_failed'))->body($e->getMessage())->danger()->persistent()->send();
+
+            return;
+        }
+
+        $this->load();
+        Notification::make()
+            ->title(trans('mar::messages.config.saved', ['n' => count($values)]))
+            ->body(trans('mar::messages.config.restart_hint'))
+            ->success()
             ->send();
     }
 

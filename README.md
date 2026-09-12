@@ -23,6 +23,11 @@ Dazu kommt das zweite Problem: Wer Mods lokal mit Gale pflegt und den Server von
 - Kein Herunterstufen: was schon in einer neueren Fassung liegt, bleibt liegen
 - Entfernen prüft vorher, ob eine andere installierte Mod davon abhängt
 
+**Mods konfigurieren**
+- Die Konfigurationsdateien der Mods aus `BepInEx/config` als Formular bearbeiten
+- Beschreibung, Vorgabe und erlaubte Werte kommen aus der Datei selbst; kein Mod muss dem Plugin bekannt sein
+- Gespeichert wird nur der Wert, der Rest der Datei bleibt unangetastet
+
 **Kompatibilität prüfen**
 - Vom Autor zurückgezogene Pakete werden als solche markiert
 - Hexiums Tag „Valheim 1.0" wird ausgewertet, wenn vorhanden
@@ -108,9 +113,10 @@ Läuft in drei Stufen:
 
 1. **PHP-Syntax** aller Dateien. Ein Plugin, das nicht parst, nimmt das Panel mit einer weißen Seite runter.
 2. **`check.py`** – was `php -l` nicht findet: fehlende Übersetzungsschlüssel, `wire:click` auf Methoden, die es nicht gibt, Einstellfelder, die nirgends gelesen werden. Diese Fehler werfen keine Ausnahme; die Seite rendert, und es fällt erst auf, wenn jemand klickt.
-3. **95 Tests** ohne Panel, ohne Datenbank, ohne Spielserver:
+3. **137 Tests** ohne Panel, ohne Datenbank, ohne Spielserver:
    - `tests/PhaseTest.php` (43) – die Neustart-Logik. Vor allem: wann *nicht* neu gestartet wird.
    - `tests/InstallTest.php` (52) – Aufbau-Erkennung an echten Paketen, Abhängigkeiten, Kompatibilitätshinweise.
+   - `tests/ConfigTest.php` (42) – BepInEx-Konfigurationsdateien lesen, prüfen und Byte-genau zurückschreiben.
 
 ---
 
@@ -137,6 +143,7 @@ Läuft in drei Stufen:
 - **Ladereihenfolge sortieren.** BepInEx lädt alphabetisch; Mods mit harten Reihenfolgeanforderungen müssen von Hand nachgezogen werden.
 - **Client-Seite bedienen.** Dafür bleibt Gale zuständig. Das Plugin sorgt dafür, dass der Server aktuell ist, nicht dein PC.
 - **Mods finden.** Es gibt keine Suche – du gibst eine URL ein. Zum Stöbern sind die Webseiten der Repositorys da.
+- **Konfigurationsdateien anlegen.** Der Editor bearbeitet, was das Mod beim ersten Start geschrieben hat. Vorher gibt es nichts.
 - **Garantieren, dass eine Mod läuft.** Siehe oben: die Information dafür existiert nirgends.
 
 ---
