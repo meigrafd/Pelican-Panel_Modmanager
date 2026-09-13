@@ -250,6 +250,28 @@ class AutoRestart extends Page
                     ->modalDescription(trans('mar::messages.action.restart_confirm'))
                     ->action('restartNow'),
 
+                // Derselbe Ablauf wie bei einem erkannten Update, nur von Hand
+                // angestossen. Sichtbar, solange nichts laeuft.
+                Action::make('schedule_restart')
+                    ->label(trans('mar::messages.action.schedule_restart'))
+                    ->icon('tabler-clock-play')
+                    ->color('gray')
+                    ->visible(fn () => $this->canRestart()
+                        && !in_array($this->run['phase'] ?? 'idle', ['warning', 'verifying'], true))
+                    ->requiresConfirmation()
+                    ->modalDescription(fn () => trans('mar::messages.action.schedule_confirm',
+                        ['minutes' => (int) ($this->data['warn_minutes'] ?? 0)]))
+                    ->action('scheduleRestart'),
+
+                Action::make('cancel_restart')
+                    ->label(trans('mar::messages.action.cancel_restart'))
+                    ->icon('tabler-player-stop')
+                    ->color('danger')
+                    ->visible(fn () => $this->canRestart()
+                        && ($this->run['phase'] ?? '') === 'warning'
+                        && ($this->run['trigger'] ?? '') === 'manual')
+                    ->action('cancelScheduledRestart'),
+
                 Action::make('set_flag')
                     ->label(trans('mar::messages.action.set_flag'))
                     ->color('warning')
@@ -1258,6 +1280,44 @@ class AutoRestart extends Page
                 : trans('mar::messages.notify.backup_off'))
             ->success()
             ->send();
+    }
+
+    /** Neustart mit dem vollen Ablauf anstossen; ab dann treibt der Scheduler. */
+    public function scheduleRestart(): void
+    {
+        abort_unless($this->canRestart(), 403);
+
+        $result = app(AutoUpdateService::class)->scheduleRestart(
+            $this->getServer(),
+            (string) (user()?->username ?? '')
+        );
+
+        if (!$result['ok']) {
+            Notification::make()->title(trans('mar::messages.notify.schedule_busy'))->warning()->send();
+
+            return;
+        }
+
+        Notification::make()
+            ->title($result['minutes'] > 0
+                ? trans('mar::messages.notify.scheduled', ['minutes' => $result['minutes']])
+                : trans('mar::messages.notify.scheduled_now'))
+            ->body(trans('mar::messages.notify.scheduled_body'))
+            ->success()
+            ->send();
+        $this->reload();
+    }
+
+    public function cancelScheduledRestart(): void
+    {
+        abort_unless($this->canRestart(), 403);
+
+        $ok = app(AutoUpdateService::class)->cancelScheduledRestart($this->getServer());
+        Notification::make()
+            ->title(trans($ok ? 'mar::messages.notify.schedule_cancelled' : 'mar::messages.notify.schedule_not_cancelled'))
+            ->{$ok ? 'success' : 'warning'}()
+            ->send();
+        $this->reload();
     }
 
     /** Fehlerzustand quittieren, damit die Funktion wieder eingeschaltet werden kann. */

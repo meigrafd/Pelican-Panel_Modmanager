@@ -284,6 +284,40 @@ ok('  laufende Phase bleibt unangetastet', ($s->state['run']['phase'] ?? '') ===
     && ($s->state['run']['reason'] ?? '') === 'Mod' && ($s->state['run']['restart_at'] ?? 0) === 12345);
 ok('  kein Neustart durch die Pruefung', PowerService::$sent === []);
 
+echo "\n=== Neustart von Hand mit Vorwarnung\n";
+
+resetAll();
+// Auto-Neustart AUS, Spielerzahl unbekannt, fuenf Minuten Vorwarnung: der
+// Ablauf muss trotzdem laufen, weil ein Mensch ihn angestossen hat.
+Messenger::$players = null;
+$s = store(['enabled' => false, 'warn_minutes' => 5]);
+$svc = service($s);
+$r = $svc->scheduleRestart(new Server(), 'tester');
+ok('geplant mit fuenf Minuten', $r['ok'] === true && $r['minutes'] === 5);
+ok('  Phase warning, Ausloeser manual', ($s->state['run']['phase'] ?? '') === 'warning' && ($s->state['run']['trigger'] ?? '') === 'manual');
+ok('  erste Warnung ging raus', (bool) array_filter(Messenger::$said, fn ($t) => str_contains($t, '5 Minuten')));
+$svc->tickServer(new Server());
+ok('  Tick treibt trotz Auto-Neustart aus, aber kein Neustart vor Ablauf', PowerService::$sent === [] && ($s->state['run']['phase'] ?? '') === 'warning');
+ok('  zweiter Plan waehrend der Warnung wird abgewiesen', $svc->scheduleRestart(new Server(), 'tester')['ok'] === false);
+ok('  abbrechen geht und fuehrt zu idle', $svc->cancelScheduledRestart(new Server()) === true && ($s->state['run']['phase'] ?? '') === 'idle');
+ok('  ohne Plan gibt es nichts abzubrechen', $svc->cancelScheduledRestart(new Server()) === false);
+
+resetAll();
+$s = store(['enabled' => false, 'warn_minutes' => 0]);
+$svc = service($s);
+$svc->scheduleRestart(new Server(), 'tester');
+$svc->tickServer(new Server());
+ok('ohne Vorwarnung: Neustart geht mit dem naechsten Tick raus', PowerService::$sent === ['restart']);
+ok('  Historie: von Hand, durch tester, ausstehend', ($s->state['history'][0]['trigger'] ?? '') === 'manual'
+    && ($s->state['history'][0]['by'] ?? '') === 'tester' && ($s->state['history'][0]['outcome'] ?? '') === 'pending');
+ok('  Phase verifying behaelt den Ausloeser', ($s->state['run']['phase'] ?? '') === 'verifying' && ($s->state['run']['trigger'] ?? '') === 'manual');
+$s->state['run']['verify_after'] = time() - 60;
+$svc->tickServer(new Server());
+ok('  nach der Rueckkehr bestaetigt und idle', ($s->state['history'][0]['outcome'] ?? '') === 'verified' && ($s->state['run']['phase'] ?? '') === 'idle');
+ok('  Auto-Neustart bleibt aus', ($s->state['auto']['enabled'] ?? true) === false);
+ok('  Willkommensnachricht ging raus', in_array(StateStore::AUTO_DEFAULTS['msg_back'], Messenger::$said, true));
+ok('  kein zweiter Neustart', PowerService::$sent === ['restart']);
+
 echo "\n=== AUTO_UPDATE\n";
 
 resetAll();

@@ -73,6 +73,13 @@ class AutoUpdateService
     /** Rest fuer die Anfrage: Neustart absetzen und rendern. */
     private const REQUEST_HEADROOM_SECONDS = 15;
 
+    /**
+     * Was ein geplanter Neustart von Hand als ":reason" in die Ansagen
+     * einsetzt ("... fuer ein Wartungs-Update"). Enthaelt absichtlich nicht
+     * "Spiel": daran erkennt die Kontrolle ein Spiel-Update.
+     */
+    private const MANUAL_REASON = 'Wartungs';
+
     public function __construct(
         private GameProfile $profiles,
         private ModScanner $scanner,
@@ -124,7 +131,14 @@ class AutoUpdateService
     public function tickServer(Server $server): void
     {
         $state = $this->store->read($server);
-        if (!($state['auto']['enabled'] ?? false)) {
+
+        // Ein von Hand geplanter Neustart laeuft auch bei ausgeschaltetem
+        // Auto-Neustart durch: der Operator hat ihn ausdruecklich angestossen,
+        // und ein Ablauf, der nach der Warnung einfach stehen bliebe, waere
+        // schlimmer als gar keiner.
+        $manual = ($state['run']['trigger'] ?? '') === 'manual'
+            && in_array($state['run']['phase'] ?? '', ['warning', 'verifying'], true);
+        if (!($state['auto']['enabled'] ?? false) && !$manual) {
             return;
         }
 
@@ -270,7 +284,8 @@ class AutoUpdateService
 
             $state['history'] = $this->store->remember($state['history'] ?? [], [
                 'at' => $now,
-                'trigger' => 'auto',
+                'trigger' => (string) ($run['trigger'] ?? 'auto'),
+                'by' => $run['by'] ?? null,
                 'reason' => (string) ($run['reason'] ?? ''),
                 'changes' => $this->changesBefore($run),
                 'players' => $run['players_at_start'] ?? null,
@@ -301,7 +316,8 @@ class AutoUpdateService
         // Neustart versucht wurde, statt einer Luecke in der Liste.
         $state['history'] = $this->store->remember($state['history'] ?? [], [
             'at' => $now,
-            'trigger' => 'auto',
+            'trigger' => (string) ($run['trigger'] ?? 'auto'),
+            'by' => $run['by'] ?? null,
             'reason' => (string) ($run['reason'] ?? ''),
             'changes' => $this->changesBefore($run),
             'players' => $run['players_at_start'] ?? null,
@@ -313,8 +329,11 @@ class AutoUpdateService
             'outcome' => 'pending',
         ]);
 
+        $manual = ($run['trigger'] ?? 'auto') === 'manual';
         $run = [
             'phase' => 'verifying',
+            'trigger' => $run['trigger'] ?? 'auto',
+            'by' => $run['by'] ?? null,
             'reason' => $run['reason'],
             'detail' => $run['detail'] ?? [],
             'restarted_at' => $now,
@@ -326,7 +345,9 @@ class AutoUpdateService
             'stale_ids' => $run['stale_ids'] ?? [],
             'stale_before' => $run['stale_before'] ?? [],
             'build_before' => $run['build_before'] ?? null,
-            'note' => 'Neu gestartet fuer ein ' . $run['reason'] . '-Update. Wird kontrolliert.',
+            'note' => $manual
+                ? 'Neu gestartet von Hand. Wartet auf die Rueckkehr des Servers.'
+                : 'Neu gestartet fuer ein ' . $run['reason'] . '-Update. Wird kontrolliert.',
         ];
         $this->save($server, $state, $run);
 
@@ -401,7 +422,9 @@ class AutoUpdateService
             'last_restart_at' => (int) $run['last_restart_at'],
             'next_check_at' => $now + max(60, $auto['check_minutes'] * 60),
             'checked_at' => $now,
-            'note' => 'Update eingespielt und kontrolliert: ' . $run['reason'] . '.',
+            'note' => ($run['trigger'] ?? 'auto') === 'manual'
+                ? 'Neustart von Hand abgeschlossen, der Server ist zurueck.'
+                : 'Update eingespielt und kontrolliert: ' . $run['reason'] . '.',
             'verified_at' => $now,
         ]);
     }
@@ -551,6 +574,96 @@ class AutoUpdateService
      *
      * @return array{restarted:bool,wanted_backup:bool,backup_id:?int,backup_done:bool}
      */
+    /**
+     * Neustart von Hand, aber mit dem vollen Ablauf.
+     *
+     * Setzt den Server in dieselbe Warnphase wie ein erkanntes Update; ab
+     * da uebernimmt der Scheduler: Warnungen, Backup, Countdown, Neustart,
+     * Kontrolle der Rueckkehr, Willkommensnachricht. Das ist der Weg fuer
+     * "Server heute Abend neu starten, aber die Spieler sollen es vorher
+     * wissen" - und zugleich die Generalprobe fuer den Automatikweg, ohne
+     * auf ein echtes Update warten zu muessen.
+     *
+     * Laeuft auch bei ausgeschaltetem Auto-Neustart (siehe tickServer).
+     * Nichts zu kontrollieren gibt es nicht: die Kontrolle prueft, dass der
+     * Server zurueckkommt, und das ist bei einem Neustart von Hand genauso
+     * die Frage.
+     *
+     * @return array{ok:bool,minutes:int}  ok=false: es laeuft schon einer
+     */
+    public function scheduleRestart(Server $server, string $by): array
+    {
+        $state = $this->store->read($server);
+        if (in_array($state['run']['phase'] ?? 'idle', ['warning', 'verifying'], true)) {
+            return ['ok' => false, 'minutes' => 0];
+        }
+
+        $auto = $state['auto'];
+        $profile = $this->profiles->for($server, $auto);
+        $now = now()->timestamp;
+
+        $players = $this->messenger->players($server, $profile, $auto);
+        $warnMinutes = $players === 0 ? 0 : (int) $auto['warn_minutes'];
+
+        $run = [
+            'phase' => 'warning',
+            'trigger' => 'manual',
+            'by' => $by,
+            'reason' => self::MANUAL_REASON,
+            'detail' => [],
+            'restart_at' => $now + $warnMinutes * 60,
+            'started_at' => $now,
+            'announced' => [],
+            'players_at_start' => $players,
+            'stale_ids' => [],
+            'stale_before' => [],
+            'build_before' => null,
+            'last_restart_at' => $state['run']['last_restart_at'] ?? 0,
+            'checked_at' => $state['run']['checked_at'] ?? 0,
+            'note' => $warnMinutes > 0
+                ? 'Neustart von Hand geplant, Spieler werden gewarnt.'
+                : 'Neustart von Hand geplant, laeuft mit dem naechsten Tick.',
+            'warned' => false,
+        ];
+
+        if ($auto['backup']) {
+            $this->messenger->save($server, $profile, $auto);
+            $run['backup_id'] = $this->startBackup($server, 'Neustart von Hand');
+        }
+
+        if ($warnMinutes > 0) {
+            $run['warned'] = $this->announce($server, $profile, $auto, $auto['msg_warn'], self::MANUAL_REASON, $warnMinutes, $warnMinutes * 60);
+            $run['announced'][] = $warnMinutes;
+        }
+
+        $this->save($server, $state, $run);
+
+        return ['ok' => true, 'minutes' => $warnMinutes];
+    }
+
+    /**
+     * Einen geplanten Neustart von Hand zuruecknehmen, solange noch gewarnt
+     * wird. Nur den von Hand: einen automatischen brauchte die naechste
+     * Pruefung ohnehin wieder an.
+     */
+    public function cancelScheduledRestart(Server $server): bool
+    {
+        $state = $this->store->read($server);
+        $run = $state['run'];
+        if (($run['phase'] ?? '') !== 'warning' || ($run['trigger'] ?? '') !== 'manual') {
+            return false;
+        }
+
+        $this->save($server, $state, [
+            'phase' => 'idle',
+            'last_restart_at' => $run['last_restart_at'] ?? 0,
+            'checked_at' => $run['checked_at'] ?? 0,
+            'note' => 'Geplanter Neustart abgebrochen.',
+        ]);
+
+        return true;
+    }
+
     public function restartManually(Server $server, string $why, string $by): array
     {
         $state = $this->store->read($server);

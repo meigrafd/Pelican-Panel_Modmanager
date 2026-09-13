@@ -113,8 +113,8 @@ Läuft in drei Stufen:
 
 1. **PHP-Syntax** aller Dateien. Ein Plugin, das nicht parst, nimmt das Panel mit einer weißen Seite runter.
 2. **`check.py`** – was `php -l` nicht findet: fehlende Übersetzungsschlüssel, `wire:click` auf Methoden, die es nicht gibt, Einstellfelder, die nirgends gelesen werden. Diese Fehler werfen keine Ausnahme; die Seite rendert, und es fällt erst auf, wenn jemand klickt.
-3. **141 Tests** ohne Panel, ohne Datenbank, ohne Spielserver:
-   - `tests/PhaseTest.php` (47) – die Neustart-Logik. Vor allem: wann *nicht* neu gestartet wird.
+3. **155 Tests** ohne Panel, ohne Datenbank, ohne Spielserver:
+   - `tests/PhaseTest.php` (61) – die Neustart-Logik. Vor allem: wann *nicht* neu gestartet wird.
    - `tests/InstallTest.php` (52) – Aufbau-Erkennung an echten Paketen, Abhängigkeiten, Kompatibilitätshinweise.
    - `tests/ConfigTest.php` (42) – BepInEx-Konfigurationsdateien lesen, prüfen und Byte-genau zurückschreiben.
 

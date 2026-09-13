@@ -1,5 +1,21 @@
 # Änderungen
 
+## 0.5.4
+
+- **Neuer Knopf „Neustart mit Vorwarnung“.** Löst denselben Ablauf aus wie
+  ein erkanntes Update: erste Warnung mit der eingestellten Vorwarnzeit,
+  Backup, Warnung eine Minute vorher, Countdown, Neustart, Kontrolle der
+  Rückkehr, Willkommensnachricht. In der Historie steht „Von Hand durch …“
+  mit dem Ergebnis „bestätigt“, sobald der Server zurück ist. Läuft auch bei
+  ausgeschaltetem Auto-Neustart. Solange gewarnt wird, lässt er sich
+  abbrechen. Braucht den Scheduler des Panels.
+- **„Jetzt neu starten“ heißt jetzt „Sofort neu starten“**, und der
+  Bestätigungsdialog sagt deutlich: ohne Vorwarnung, ohne Countdown. Der
+  Knopf tat schon immer genau das, sah aber nach mehr aus.
+- Tests für den geplanten Neustart: läuft bei ausgeschaltetem Auto-Neustart,
+  kein zweiter Plan während der Warnung, Abbruch, Bestätigung nach der
+  Rückkehr.
+
 ## 0.5.3
 
 - **Englische Oberfläche vollständig übersetzt.** Die englische Sprachdatei
