@@ -76,6 +76,12 @@ class AutoRestart extends Page
 
     public string $modsNote = '';
 
+    /** @var array<string,array<string,mixed>> Stand je Mod: current, update, unknown (siehe detect) */
+    public array $versions = [];
+
+    /** Gespeicherter Schalter, unabhaengig vom Formularzustand. */
+    public bool $autoEnabled = false;
+
     /** @var array<string,mixed> Modlader auf dem Server (siehe ModScanner) */
     public array $loader = ['present' => false, 'marker' => ''];
 
@@ -185,7 +191,10 @@ class AutoRestart extends Page
     private function statusSection(): Section
     {
         return Section::make(trans('mar::messages.status.heading'))
-            ->description($this->statusDescription())
+            // Als Closure: beim Aufbau des Formulars sind die Werte noch nicht
+            // eingefuellt, ein eager berechneter Text zeigte "aus" bei einem
+            // eingeschalteten Server.
+            ->description(fn () => $this->statusDescription())
             ->icon('tabler-activity')
             ->columnSpanFull()
             ->schema([
@@ -439,6 +448,22 @@ class AutoRestart extends Page
                             ->visible(fn () => $this->messagingVia() === 'rcon')
                             ->disabled(!$writable),
 
+                        // Nur, wenn das Profil zwei Befehle kennt. Bei Valheim:
+                        // showMessage (Bildschirmmitte) und say (Chat samt
+                        // Einblendung oben - beides ein Befehl, nicht trennbar).
+                        Select::make('announce_via')
+                            ->label(trans('mar::messages.settings.announce_via'))
+                            ->options([
+                                'both' => trans('mar::messages.settings.announce_both'),
+                                'screen' => trans('mar::messages.settings.announce_screen'),
+                                'chat' => trans('mar::messages.settings.announce_chat'),
+                            ])
+                            ->selectablePlaceholder(false)
+                            ->helperText(trans('mar::messages.settings.announce_hint'))
+                            ->visible(fn () => $this->messagingVia() === 'rcon'
+                                && trim((string) (($this->profile['messaging'] ?? [])['chat'] ?? '')) !== '')
+                            ->disabled(!$writable),
+
                         Actions::make([
                             Action::make('test_messaging')
                                 ->label(trans('mar::messages.action.test_messaging'))
@@ -607,6 +632,16 @@ class AutoRestart extends Page
                     ->columns(1)
                     ->visible(fn () => (bool) $this->mods)
                     ->schema($this->modRows()),
+            ])
+            ->footerActions([
+                // Derselbe Aufruf wie "Jetzt pruefen" oben: holt frisch aus den
+                // Repositorys und schreibt das Ergebnis in Statuszeile und Liste.
+                Action::make('check_updates')
+                    ->label(trans('mar::messages.action.check_updates'))
+                    ->icon('tabler-refresh')
+                    ->color('gray')
+                    ->visible(fn () => (bool) $this->mods && (bool) $this->sources())
+                    ->action('checkNow'),
             ]);
     }
 
@@ -717,6 +752,36 @@ class AutoRestart extends Page
         $source = app(GameProfile::class)->sourceFor($this->profile, $auto, (string) $mod['full_name']);
 
         return app(RegistryClient::class)->pageUrl($this->profile, $source, (string) $mod['namespace'], (string) $mod['name']);
+    }
+
+    /** @param  array<string,mixed>  $mod */
+    private function latestText(array $mod): string
+    {
+        $v = $this->versions[$mod['full_name']] ?? null;
+        if (!($mod['tracked'] ?? false) || $v === null) {
+            return '—';
+        }
+
+        return match ($v['state'] ?? '') {
+            'update' => trans('mar::messages.mods.update_available', ['version' => (string) $v['latest']]),
+            'current' => trans('mar::messages.mods.current'),
+            default => trans('mar::messages.mods.unknown'),
+        };
+    }
+
+    /** @param  array<string,mixed>  $mod */
+    private function latestColor(array $mod): string
+    {
+        $v = $this->versions[$mod['full_name']] ?? null;
+        if (!($mod['tracked'] ?? false) || $v === null) {
+            return 'gray';
+        }
+
+        return match ($v['state'] ?? '') {
+            'update' => 'warning',
+            'current' => 'success',
+            default => 'gray',
+        };
     }
 
     /** Eintrag als Link, wenn es eine Adresse gibt; sonst unveraendert. */
@@ -907,6 +972,12 @@ class AutoRestart extends Page
                     ->hiddenLabel($i > 0)
                     ->state($mod['version'] ?: '—'),
 
+                TextEntry::make('mod_latest_' . $i)
+                    ->label(trans('mar::messages.mods.latest'))
+                    ->hiddenLabel($i > 0)
+                    ->state($this->latestText($mod))
+                    ->color($this->latestColor($mod)),
+
                 TextEntry::make('mod_tracked_' . $i)
                     ->label(trans('mar::messages.mods.tracked'))
                     ->hiddenLabel($i > 0)
@@ -951,7 +1022,7 @@ class AutoRestart extends Page
                     ->action(fn () => $this->remove($name)),
             ])->label(' ')->hiddenLabel($i > 0);
 
-            $rows[] = Grid::make(['default' => 2, 'md' => $multi ? 6 : 5])
+            $rows[] = Grid::make(['default' => 2, 'md' => $multi ? 7 : 6])
                 ->schema($cells);
         }
 
@@ -1034,7 +1105,7 @@ class AutoRestart extends Page
             $parts[] = trans('mar::messages.status.checked', ['ago' => $at]);
         }
         // Sonst sieht ein alter Zeitstempel nach laufender Ueberwachung aus.
-        if (!($this->data['enabled'] ?? false)) {
+        if (!$this->autoEnabled) {
             $parts[] = trans('mar::messages.status.off');
         }
 
@@ -1114,6 +1185,15 @@ class AutoRestart extends Page
         $this->modsNote = $index['note'];
         $this->loader = (array) ($index['loader'] ?? ['present' => false, 'marker' => '']);
         $this->loadConfigFiles($server);
+        $this->autoEnabled = (bool) ($auto['enabled'] ?? false);
+
+        // Stand je Mod fuer die Spalte "Repository". Alles aus dem Cache -
+        // hier wird nichts neu abgefragt, das tut "Jetzt pruefen".
+        try {
+            $this->versions = (array) ($service->detect($server, $this->profile, $auto)['versions'] ?? []);
+        } catch (\Throwable $e) {
+            $this->versions = [];
+        }
 
         // Zwei Schalter nach innen, ein Auswahlfeld nach aussen.
         $auto['watch'] = ($auto['check_mods'] ?? true) && ($auto['check_game'] ?? true)

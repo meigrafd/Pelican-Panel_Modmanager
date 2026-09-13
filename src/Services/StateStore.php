@@ -61,7 +61,13 @@ class StateStore
         'rcon_host' => '',
         'rcon_port' => 0,
         'rcon_password' => '',
+        // Wo die Ansage im Spiel erscheint, wenn das Profil zwei Befehle
+        // kennt (Valheim: Bildschirmmitte und Chat). Siehe ANNOUNCE_VIA.
+        'announce_via' => 'both',
     ];
+
+    /** Erlaubte Werte fuer announce_via; alles andere faellt auf 'both'. */
+    public const ANNOUNCE_VIA = ['both', 'screen', 'chat'];
 
     /**
      * Ausnahmen pro Mod: full_name => Quellenname.
@@ -223,6 +229,10 @@ class StateStore
                 // Vorgabe wieder, und eine Nachricht liesse sich nie abschalten.
                 $out[$key] = mb_substr(trim((string) $value), 0, 400);
             }
+        }
+
+        if (!in_array($out['announce_via'], self::ANNOUNCE_VIA, true)) {
+            $out['announce_via'] = 'both';
         }
 
         return $out;

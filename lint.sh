@@ -34,4 +34,8 @@ echo "== Konfigurationsdateien: Lesen und Zurueckschreiben"
 php tests/ConfigTest.php
 
 echo
+echo "== Ansagen: welche Befehle je Einstellung rausgehen"
+php tests/MessengerTest.php
+
+echo
 echo "Alles durch."

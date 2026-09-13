@@ -338,6 +338,31 @@ ok('"" leert die Nachricht', $read(['msg_back' => ''])['msg_back'] === '');
 ok('nur Leerzeichen leeren die Nachricht', $read(['msg_back' => '   '])['msg_back'] === '');
 ok('fehlender Schluessel behaelt die Vorgabe', $read([])['msg_back'] === StateStore::AUTO_DEFAULTS['msg_back']);
 ok('null bei einer Zahl behaelt die Vorgabe', $read(['check_minutes' => null])['check_minutes'] === StateStore::AUTO_DEFAULTS['check_minutes']);
+ok('announce_via: unbekannter Wert faellt auf both zurueck', $read(['announce_via' => 'xyz'])['announce_via'] === 'both');
+ok('announce_via: chat bleibt chat', $read(['announce_via' => 'chat'])['announce_via'] === 'chat');
+
+echo "\n=== Stand je Mod fuer die Liste\n";
+
+$profileOf = fn (MemoryStore $s) => (new GameProfile())->for(new Server(), $s->state['auto']);
+
+resetAll();
+RegistryClient::$latest = ['Autor-ModA' => ['version' => '2.0.0', 'updated' => 2000, 'source' => 'thunderstore']];
+$s = store();
+$found = service($s)->detect(new Server(), $profileOf($s), $s->state['auto']);
+ok('abweichende Version: update mit Nummer', ($found['versions']['Autor-ModA']['state'] ?? '') === 'update'
+    && ($found['versions']['Autor-ModA']['latest'] ?? '') === '2.0.0');
+
+resetAll();
+$s = store();
+$found = service($s)->detect(new Server(), $profileOf($s), $s->state['auto']);
+ok('gleiche Version: current', ($found['versions']['Autor-ModA']['state'] ?? '') === 'current');
+
+resetAll();
+RegistryClient::$latest = ['Autor-ModA' => ['version' => null, 'updated' => null, 'source' => 'thunderstore']];
+RegistryClient::$degraded = true;
+$s = store();
+$found = service($s)->detect(new Server(), $profileOf($s), $s->state['auto']);
+ok('Repository ohne Antwort: unknown, nicht update', ($found['versions']['Autor-ModA']['state'] ?? '') === 'unknown');
 
 echo "\n";
 printf("ERGEBNIS: %d bestanden, %d fehlgeschlagen\n", $passed, $failed);

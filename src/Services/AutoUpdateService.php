@@ -740,7 +740,7 @@ class AutoUpdateService
         $detail = [];
         $degraded = false;
         $game = [];
-        $mods = ['ids' => [], 'stale' => []];
+        $mods = ['ids' => [], 'stale' => [], 'versions' => []];
 
         if ($auto['check_mods'] ?? true) {
             $mods = $this->outdatedMods($server, $profile, $auto, $fresh);
@@ -790,6 +790,9 @@ class AutoUpdateService
             'detail' => $detail,
             'ids' => $mods['ids'],
             'stale' => $mods['stale'],
+            // Stand je verfolgtem Mod fuer die Liste auf der Seite:
+            // current, update (mit Nummer) oder unknown.
+            'versions' => $mods['versions'] ?? [],
             'build' => $game['installed'] ?? null,
             'degraded' => $degraded,
             'note' => $note,
@@ -853,10 +856,16 @@ class AutoUpdateService
         $ids = [];
         $stale = [];
         $unknown = [];
+        $versions = [];
 
         foreach ($tracked as $mod) {
             $key = $mod['full_name'];
             $remote = $latest[$key]['version'] ?? null;
+            $versions[$key] = [
+                'state' => $remote === null ? 'unknown' : ($remote === $mod['version'] ? 'current' : 'update'),
+                'latest' => $remote,
+                'source' => (string) ($latest[$key]['source'] ?? ''),
+            ];
 
             if ($remote === null) {
                 // Nicht im Repository oder nicht erreichbar. Beides heisst
@@ -904,7 +913,7 @@ class AutoUpdateService
                 . ' (' . $row['source'] . ').';
         }
 
-        return ['ids' => $ids, 'stale' => $stale, 'detail' => $detail, 'degraded' => $degraded];
+        return ['ids' => $ids, 'stale' => $stale, 'versions' => $versions, 'detail' => $detail, 'degraded' => $degraded];
     }
 
     // -------------------------------------------------------------- ansagen

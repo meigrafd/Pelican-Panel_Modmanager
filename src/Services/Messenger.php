@@ -116,18 +116,35 @@ class Messenger
         $clean = $this->clean($text);
 
         $broadcast = trim((string) ($messaging['broadcast'] ?? ''));
-        if ($broadcast === '') {
-            return false;
+        $chat = trim((string) ($messaging['chat'] ?? ''));
+
+        // Wo die Ansage erscheint, entscheidet der Operator: Bildschirm,
+        // Chat oder beides. Der Chat-Befehl bei Valheim zeigt sich als Zeile
+        // im Chat UND als Einblendung oben - beides haengt am selben Befehl.
+        $via = (string) ($auto['announce_via'] ?? 'both');
+        if (!in_array($via, StateStore::ANNOUNCE_VIA, true)) {
+            $via = 'both';
+        }
+        $useScreen = $via !== 'chat' && $broadcast !== '';
+        $useChat = $via !== 'screen' && $chat !== '';
+        if (!$useScreen && !$useChat) {
+            // Die Wahl passt nicht zum Profil (etwa "nur Chat" ohne
+            // Chat-Befehl): lieber der Bildschirm als gar keine Warnung.
+            if ($broadcast === '') {
+                return false;
+            }
+            $useScreen = true;
         }
 
-        $shown = $this->rcon->send($config, strtr($broadcast, [':text' => $clean])) !== null;
-
-        // Ein zweiter Weg, wenn das Profil einen nennt: die Bildschirmnachricht
-        // ist nicht zu uebersehen, der Chat ist nachlesbar. Ob dieser zweite
-        // Versuch klappt, entscheidet nichts - gemeldet wird der erste.
-        $chat = trim((string) ($messaging['chat'] ?? ''));
-        if ($chat !== '') {
-            $this->rcon->send($config, strtr($chat, [':text' => $clean]));
+        $shown = false;
+        if ($useScreen) {
+            $shown = $this->rcon->send($config, strtr($broadcast, [':text' => $clean])) !== null;
+        }
+        if ($useChat) {
+            $said = $this->rcon->send($config, strtr($chat, [':text' => $clean])) !== null;
+            if (!$useScreen) {
+                $shown = $said;
+            }
         }
 
         return $shown;

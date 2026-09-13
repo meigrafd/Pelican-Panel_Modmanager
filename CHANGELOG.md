@@ -1,5 +1,25 @@
 # Änderungen
 
+## 0.6.0
+
+- **Einstellung „Ansage zeigen als“**: Bildschirmmitte und Chat, nur
+  Bildschirmmitte, nur Chat. Gilt für Warnungen, Countdown, „Willkommen
+  zurück“ und „Ansage testen“. Nur sichtbar, wenn das Profil beide Befehle
+  kennt, also bei Valheim. Der Chat-Befehl zeigt sich dort als Zeile im Chat
+  und als Einblendung oben; beides hängt am selben Befehl und ist nicht
+  trennbar.
+- **Spalte „Repository“ in der Mod-Liste**: „aktuell“, „Update: 1.6.3“ oder
+  „nicht geprüft“, je Mod. Kommt aus dem Cache der letzten Prüfung; der neue
+  Knopf „Auf Updates prüfen“ unter der Liste holt frisch aus den Repositorys,
+  genau wie „Jetzt prüfen“ im Status.
+- **Statuszeile zeigte „auto-restart off“ bei eingeschaltetem Auto-Neustart.**
+  Sie wurde beim Aufbau des Formulars berechnet, bevor die gespeicherten
+  Werte eingefüllt waren. Jetzt liest sie den gespeicherten Schalter und wird
+  erst beim Rendern ausgewertet.
+- Neue Testdatei `tests/MessengerTest.php`: welche Befehle je Einstellung
+  rausgehen und was als zugestellt gilt. Der Messenger war bisher nicht
+  getestet.
+
 ## 0.5.6
 
 - **0.5.5 ließ die Seite nicht mehr rendern** („Target class
