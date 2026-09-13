@@ -641,7 +641,7 @@ class AutoRestart extends Page
                     ->icon('tabler-refresh')
                     ->color('gray')
                     ->visible(fn () => (bool) $this->mods && (bool) $this->sources())
-                    ->action('checkNow'),
+                    ->action('checkMods'),
             ]);
     }
 
@@ -1049,13 +1049,10 @@ class AutoRestart extends Page
         $lines = [];
 
         foreach ($this->history as $entry) {
-            $head = $entry['at'] . '  ·  ' . trans('mar::messages.outcome.' . $entry['outcome']);
-            if ($entry['down']) {
-                $head .= '  ·  ' . trans('mar::messages.history.down', ['time' => $entry['down']]);
-            }
-
             $what = $entry['trigger'] === 'manual'
-                ? trans('mar::messages.history.manual', ['by' => $entry['by'] ?: '?'])
+                ? trans(($entry['mode'] ?? '') === 'immediate'
+                    ? 'mar::messages.history.manual_immediate'
+                    : 'mar::messages.history.manual', ['by' => $entry['by'] ?: '?'])
                 : trans('mar::messages.history.auto', ['reason' => $entry['reason']]);
 
             if (!is_null($entry['players'])) {
@@ -1081,8 +1078,16 @@ class AutoRestart extends Page
                 $changes[] = $text;
             }
 
-            $line = $head . '  —  ' . $what;
-            if ($changes) {
+            $result = trans('mar::messages.outcome.' . $entry['outcome']);
+            if ($entry['down']) {
+                $result .= ', ' . trans('mar::messages.history.down', ['time' => $entry['down']]);
+            }
+
+            // Zeit, was, wie ausgegangen. Aenderungen nur bei automatischen
+            // Neustarts: ein Neustart von Hand traegt dort nur seinen Anlass,
+            // und der steht schon im Was.
+            $line = $entry['at'] . '  ·  ' . $what . '  ·  ' . $result;
+            if ($entry['trigger'] === 'auto' && $changes) {
                 $line .= ': ' . implode(', ', $changes);
             }
             if ($entry['note']) {
@@ -1107,9 +1112,26 @@ class AutoRestart extends Page
         // Sonst sieht ein alter Zeitstempel nach laufender Ueberwachung aus.
         if (!$this->autoEnabled) {
             $parts[] = trans('mar::messages.status.off');
+        } elseif (($this->run['phase'] ?? 'idle') === 'idle') {
+            // Damit "vor 16 Minuten" bei "alle 10 Minuten" nicht nach einem
+            // stehenden Scheduler aussieht: die Abklingzeit nach einem Neustart
+            // haelt nur den Neustart an, und die naechste Pruefung hat eine Uhrzeit.
+            $until = (int) ($this->run['last_restart_at'] ?? 0) + (int) ($this->data['cooldown_minutes'] ?? 0) * 60;
+            $next = (int) ($this->run['next_check_at'] ?? 0);
+            if ($until > time()) {
+                $parts[] = trans('mar::messages.status.cooldown', ['until' => $this->clock($until)]);
+            }
+            if ($next > time()) {
+                $parts[] = trans('mar::messages.status.next_check', ['at' => $this->clock($next)]);
+            }
         }
 
         return implode(' · ', $parts);
+    }
+
+    private function clock(int $timestamp): string
+    {
+        return Carbon::createFromTimestamp($timestamp)->setTimezone(config('app.timezone'))->format('H:i');
     }
 
     /**
@@ -1190,7 +1212,7 @@ class AutoRestart extends Page
         // Stand je Mod fuer die Spalte "Repository". Alles aus dem Cache -
         // hier wird nichts neu abgefragt, das tut "Jetzt pruefen".
         try {
-            $this->versions = (array) ($service->detect($server, $this->profile, $auto)['versions'] ?? []);
+            $this->versions = (array) ($service->detect($server, $this->profile, $this->modsOnly($auto))['versions'] ?? []);
         } catch (\Throwable $e) {
             $this->versions = [];
         }
@@ -1331,6 +1353,42 @@ class AutoRestart extends Page
                 default => 'success',
             }}()
             ->send();
+    }
+
+    /**
+     * Die Mods gegen die Repositorys pruefen - unabhaengig davon, was die
+     * Ueberwachung eingestellt hat. Der Knopf steht unter der Mod-Liste, also
+     * prueft er die Mods, auch bei "nur Spiel-Updates". Schreibt nichts in
+     * die Statuszeile, die gehoert der Ueberwachung.
+     */
+    public function checkMods(): void
+    {
+        $found = app(AutoUpdateService::class)->detect(
+            $this->getServer(), $this->profile, $this->modsOnly($this->toAuto()), true
+        );
+
+        Notification::make()
+            ->title($found['note'])
+            ->body(implode("\n", array_slice($found['detail'], 0, 10)))
+            ->{match (true) {
+                (bool) $found['reason'] => 'warning',
+                $found['degraded'] => 'danger',
+                default => 'success',
+            }}()
+            ->send();
+        $this->reload();
+    }
+
+    /**
+     * @param  array<string,mixed>  $auto
+     * @return array<string,mixed>
+     */
+    private function modsOnly(array $auto): array
+    {
+        $auto['check_mods'] = true;
+        $auto['check_game'] = false;
+
+        return $auto;
     }
 
     /** Ansageweg testen und sofort sichtbares Ergebnis liefern. */
@@ -1785,6 +1843,7 @@ class AutoRestart extends Page
                 'trigger' => $entry['trigger'],
                 'reason' => $entry['reason'],
                 'by' => $entry['by'],
+                'mode' => $entry['mode'] ?? '',
                 'changes' => $changes,
                 'players' => $entry['players'],
                 'warned' => $entry['warned'],

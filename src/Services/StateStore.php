@@ -160,6 +160,8 @@ class StateStore
                 'trigger' => ($entry['trigger'] ?? '') === 'manual' ? 'manual' : 'auto',
                 'reason' => mb_substr(trim((string) ($entry['reason'] ?? '')), 0, 40),
                 'by' => mb_substr(trim((string) ($entry['by'] ?? '')), 0, 60),
+                // 'immediate' fuer den Sofort-Knopf, sonst leer (geplant oder auto).
+                'mode' => ($entry['mode'] ?? '') === 'immediate' ? 'immediate' : '',
                 'changes' => array_slice($changes, 0, 40),
                 'players' => is_numeric($entry['players'] ?? null) ? (int) $entry['players'] : null,
                 'backup_id' => is_numeric($entry['backup_id'] ?? null) ? (int) $entry['backup_id'] : null,

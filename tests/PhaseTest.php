@@ -133,6 +133,9 @@ RegistryClient::$latest = ['Autor-ModA' => ['version' => '2.0.0', 'updated' => 2
 $s = store(['cooldown_minutes' => 60], ['phase' => 'idle', 'last_restart_at' => time() - 60]);
 service($s)->tickServer(new Server());
 ok('Abklingzeit laeuft noch: kein Neustart', PowerService::$sent === []);
+ok('  aber geprueft, mit Hinweis auf die Wartezeit', ($s->state['run']['checked_at'] ?? 0) > 0
+    && str_contains($s->state['run']['note'] ?? '', 'Abklingzeit'));
+ok('  Phase bleibt idle', ($s->state['run']['phase'] ?? 'idle') === 'idle');
 
 echo "\n=== Wann neu gestartet wird\n";
 

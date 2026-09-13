@@ -1,5 +1,22 @@
 # Änderungen
 
+## 0.6.1
+
+- **Geprüft wird auch in der Abklingzeit.** Nach einem Neustart hielt die
+  Abklingzeit (Vorgabe 30 Minuten) bisher auch die Prüfung an; die
+  Statuszeile zeigte dann „vor 16 Minuten“ bei „alle 10 Minuten“ und sah
+  nach einem stehenden Scheduler aus. Jetzt wird geprüft, nur der Neustart
+  wartet, und die Statuszeile sagt bis wann. Sie nennt außerdem die Uhrzeit
+  der nächsten Prüfung.
+- **„Mods auf Updates prüfen“ prüft die Mods**, auch wenn die Überwachung
+  auf „nur Spiel-Updates“ steht. Der Knopf steht unter der Mod-Liste, also
+  gilt er den Mods; die Spalte „Repository“ wird ebenso unabhängig von der
+  Überwachung gefüllt. „Jetzt prüfen“ im Status folgt weiter der Einstellung.
+- **Historie lesbarer:** Zeit, was, Ergebnis, in dieser Reihenfolge. Der
+  Sofort-Neustart heißt jetzt so, der geplante „mit Vorwarnung“. Neustarts
+  von Hand zeigen keine Änderungsliste mehr; dort stand nur der Anlass als
+  vermeintliche Mod.
+
 ## 0.6.0
 
 - **Einstellung „Ansage zeigen als“**: Bildschirmmitte und Chat, nur

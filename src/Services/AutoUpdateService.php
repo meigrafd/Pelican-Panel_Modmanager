@@ -169,9 +169,11 @@ class AutoUpdateService
         // Zwei Uhren: wie lange der letzte Neustart her ist, und wie lange die
         // letzte Pruefung. Die erste verhindert, dass aus einer Welle von
         // Mod-Updates eine Welle von Neustarts wird; die zweite ist nur das
-        // Abfrageintervall.
+        // Abfrageintervall. Geprueft wird auch in der Abklingzeit - sonst
+        // stuende auf der Seite eine halbe Stunde lang ein alter Stand; nur
+        // der Neustart wartet.
         $cooldownUntil = (int) ($run['last_restart_at'] ?? 0) + $auto['cooldown_minutes'] * 60;
-        if ($now < $cooldownUntil || $now < (int) ($run['next_check_at'] ?? 0)) {
+        if ($now < (int) ($run['next_check_at'] ?? 0)) {
             return;
         }
 
@@ -187,6 +189,14 @@ class AutoUpdateService
         $run['degraded'] = $found['degraded'];
 
         if (!$found['reason']) {
+            $this->save($server, $state, $run);
+
+            return;
+        }
+
+        if ($now < $cooldownUntil) {
+            $run['note'] = $found['note'] . ' Neustart wartet bis ' . date('H:i', $cooldownUntil)
+                . ' (Abklingzeit nach dem letzten Neustart).';
             $this->save($server, $state, $run);
 
             return;
@@ -705,6 +715,7 @@ class AutoUpdateService
         $state['history'] = $this->store->remember($state['history'] ?? [], [
             'at' => now()->timestamp,
             'trigger' => 'manual',
+            'mode' => 'immediate',
             'reason' => 'manuell',
             'by' => $by,
             'changes' => [['kind' => 'mod', 'name' => $why]],
