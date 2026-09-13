@@ -271,6 +271,19 @@ $svc->tickServer(new Server());
 ok('Ansageweg kaputt: Neustart laeuft trotzdem', PowerService::$sent === ['restart']);
 ok('  Historie haelt fest, dass nicht gewarnt wurde', ($s->state['history'][0]['warned'] ?? true) === false);
 
+echo "\n=== Pruefung von Hand\n";
+
+resetAll();
+// Mitten in einer Warnung auf "Jetzt pruefen" geklickt: Zeitpunkt und
+// Ergebnis kommen in den Zustand, die laufende Phase bleibt, wie sie ist.
+$s = store([], ['phase' => 'warning', 'reason' => 'Mod', 'restart_at' => 12345]);
+service($s)->noteManualCheck(new Server(), ['note' => 'Alles aktuell.', 'degraded' => false]);
+ok('Zeitpunkt der Pruefung wird gemerkt', ($s->state['run']['checked_at'] ?? 0) > 0);
+ok('  Ergebnis wird gemerkt', ($s->state['run']['note'] ?? '') === 'Alles aktuell.');
+ok('  laufende Phase bleibt unangetastet', ($s->state['run']['phase'] ?? '') === 'warning'
+    && ($s->state['run']['reason'] ?? '') === 'Mod' && ($s->state['run']['restart_at'] ?? 0) === 12345);
+ok('  kein Neustart durch die Pruefung', PowerService::$sent === []);
+
 echo "\n=== AUTO_UPDATE\n";
 
 resetAll();

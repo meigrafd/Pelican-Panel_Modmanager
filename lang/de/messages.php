@@ -18,6 +18,7 @@ return [
     'status' => [
         'heading' => 'Status',
         'checked' => 'zuletzt geprueft :ago',
+        'off' => 'Auto-Neustart aus',
         'idle' => 'Nichts zu tun.',
         'detail' => 'Was genau verglichen wurde',
         'failed_help' => 'Der letzte Neustart hat das Update nicht eingespielt. Die Funktion hat sich abgeschaltet, statt es erneut zu versuchen. Pruefe, ob AUTO_UPDATE auf 1 steht und ob die Mod im Repository noch existiert, dann quittiere den Fehler.',
@@ -62,7 +63,7 @@ return [
         'msg_none' => 'Fuer dieses Spiel ist kein Ansageweg hinterlegt. Der Neustart laeuft trotzdem, nur still. Wer einen Weg kennt (ein RCON-Mod, ein Konsolenbefehl), traegt ihn im Profil in der Konfigurationsdatei ein.',
         'msg_console' => 'Die Ansage geht ueber die Panel-Konsole. Kein Port, kein Passwort noetig.',
         'msg_rcon' => 'Die Ansage geht ueber RCON.',
-        'msg_rcon_mod' => 'Die Ansage geht ueber RCON. Dafuer muss das Mod :mod auf dem Server installiert und sein Port als Allocation zugewiesen sein.',
+        'msg_rcon_mod' => 'Die Ansage geht ueber RCON. Dafuer muss das Mod :mod auf dem Server installiert und sein Port als Allocation zugewiesen sein. Vorgabe des Mods ist Spielport + :offset, hier also :port.',
         'via_console' => 'Panel-Konsole',
         'rcon_host' => 'Adresse',
         'rcon_host_placeholder' => 'leer = IP des Servers',

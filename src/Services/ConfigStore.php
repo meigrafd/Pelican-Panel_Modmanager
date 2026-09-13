@@ -10,8 +10,11 @@ use Illuminate\Support\Facades\Cache;
  * Holt und schreibt die Konfigurationsdateien der Mods ueber Wings.
  *
  * Die Liste liest jede Datei einmal, um Plugin-Name und GUID aus der Kopfzeile
- * zu bekommen - anders laesst sich eine Datei keinem Mod zuordnen. Das sind so
- * viele Aufrufe wie Dateien, deshalb im Cache, wie der Mod-Index auch.
+ * zu bekommen - anders laesst sich eine Datei keinem Mod zuordnen. Das
+ * Verzeichnis selbst wird bei jedem Aufruf gelesen (ein Wings-Aufruf), damit
+ * eine Datei, die der Server gerade erst angelegt hat, sofort erscheint. Nur
+ * die Kopfzeilen liegen im Cache, je Datei unter Groesse und Aenderungszeit:
+ * eine geaenderte Datei wird neu gelesen, eine unveraenderte kostet nichts.
  * Geschrieben wird nie aus dem Cache, sondern aus dem, was gerade gelesen wurde.
  */
 class ConfigStore
@@ -31,14 +34,6 @@ class ConfigStore
             return [];
         }
 
-        $key = $this->cacheKey($server, $dir);
-        if (!$fresh) {
-            $cached = Cache::get($key);
-            if (is_array($cached)) {
-                return $cached;
-            }
-        }
-
         $out = [];
         try {
             $entries = $this->files->setServer($server)->getDirectory('/' . $dir);
@@ -54,21 +49,22 @@ class ConfigStore
                 continue;
             }
             $row = ['file' => $name, 'path' => $dir . '/' . $name, 'plugin' => '', 'guid' => ''];
-            try {
-                $doc = $this->read($server, $row['path']);
-                $row['plugin'] = $doc['plugin'];
-                $row['guid'] = $doc['guid'];
-            } catch (\Throwable $e) {
-                // Unlesbar: trotzdem auflisten, nur ohne Zuordnung.
+            $key = $this->headerKey($server, $row['path'], $entry);
+            $head = $fresh ? null : Cache::get($key);
+            if (!is_array($head)) {
+                $head = ['plugin' => '', 'guid' => ''];
+                try {
+                    $doc = $this->read($server, $row['path']);
+                    $head = ['plugin' => $doc['plugin'], 'guid' => $doc['guid']];
+                } catch (\Throwable $e) {
+                    // Unlesbar: trotzdem auflisten, nur ohne Zuordnung.
+                }
+                Cache::put($key, $head, now()->addDay());
             }
-            $out[] = $row;
+            $out[] = $row + $head;
         }
 
         usort($out, fn ($a, $b) => strcasecmp($a['file'], $b['file']));
-
-        Cache::put($key, $out, now()->addMinutes(
-            max(1, (int) config('mod-auto-restart.cache.index_minutes', 10))
-        ));
 
         return $out;
     }
@@ -84,16 +80,13 @@ class ConfigStore
     public function write(Server $server, string $path, string $raw): void
     {
         $this->files->setServer($server)->putContent('/' . ltrim($path, '/'), $raw);
-        $this->forget($server, dirname($path));
+        // Kein Cache zu leeren: die Aenderungszeit der Datei ist Teil des
+        // Schluessels, die naechste Liste liest die Kopfzeile ohnehin neu.
     }
 
-    public function forget(Server $server, string $dir): void
+    /** @param  array<string,mixed>  $entry  Verzeichniseintrag von Wings */
+    private function headerKey(Server $server, string $path, array $entry): string
     {
-        Cache::forget($this->cacheKey($server, trim($dir, '/')));
-    }
-
-    private function cacheKey(Server $server, string $dir): string
-    {
-        return "mar:cfg:{$server->id}:" . md5($dir);
+        return "mar:cfghead:{$server->id}:" . md5($path . '|' . ($entry['size'] ?? '') . '|' . ($entry['modified'] ?? ''));
     }
 }

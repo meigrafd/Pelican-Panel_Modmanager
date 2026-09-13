@@ -2,7 +2,7 @@
     "id": "mod-auto-restart",
     "name": "Mod Watch & Auto-Restart",
     "author": "meigrafd",
-    "version": "0.5.2",
+    "version": "0.5.3",
     "description": "Verwaltet Mods von Thunderstore und Hexium auf Steam-Spielservern und startet den Server automatisch neu, wenn eine Mod oder das Spiel aktualisiert wurde. Mit Abhaengigkeitsaufloesung, Kompatibilitaetshinweisen, Vorwarnung fuer Spieler, Backup und Erfolgskontrolle.",
     "category": "plugin",
     "url": "https://github.com/meigrafd/Pelican-Panel_Modmanager",

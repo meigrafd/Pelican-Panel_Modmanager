@@ -386,7 +386,11 @@ class AutoRestart extends Page
                                 'none' => trans('mar::messages.settings.msg_none'),
                                 'console' => trans('mar::messages.settings.msg_console'),
                                 default => $this->messagingMod()
-                                    ? trans('mar::messages.settings.msg_rcon_mod', ['mod' => $this->messagingMod()])
+                                    ? trans('mar::messages.settings.msg_rcon_mod', [
+                                        'mod' => $this->messagingMod(),
+                                        'offset' => (int) (($this->profile['messaging'] ?? [])['port_offset'] ?? 0),
+                                        'port' => $this->rconPort(),
+                                    ])
                                     : trans('mar::messages.settings.msg_rcon'),
                             }),
 
@@ -972,8 +976,27 @@ class AutoRestart extends Page
         if ($at = $this->checkedAt()) {
             $parts[] = trans('mar::messages.status.checked', ['ago' => $at]);
         }
+        // Sonst sieht ein alter Zeitstempel nach laufender Ueberwachung aus.
+        if (!($this->data['enabled'] ?? false)) {
+            $parts[] = trans('mar::messages.status.off');
+        }
 
         return implode(' · ', $parts);
+    }
+
+    /**
+     * Der RCON-Port, den das Plugin tatsaechlich anspricht - dieselbe Regel
+     * wie im RconClient, nur aus dem Formularzustand statt aus dem Speicher.
+     */
+    private function rconPort(): int
+    {
+        $port = (int) ($this->data['rcon_port'] ?? 0);
+        if ($port > 0) {
+            return $port;
+        }
+        $offset = (int) (($this->profile['messaging'] ?? [])['port_offset'] ?? 0);
+
+        return (int) ($this->getServer()->allocation->port ?? 0) + $offset;
     }
 
     private function checkedAt(): ?string
@@ -1155,7 +1178,11 @@ class AutoRestart extends Page
     /** Jetzt pruefen: alles frisch holen, nichts neu starten. */
     public function checkNow(): void
     {
-        $found = app(AutoUpdateService::class)->detect($this->getServer(), $this->profile, $this->toAuto(), true);
+        $service = app(AutoUpdateService::class);
+        $found = $service->detect($this->getServer(), $this->profile, $this->toAuto(), true);
+        // Damit die Statuszeile auch eine Pruefung von Hand zeigt - sonst
+        // stand dort stundenlang der letzte Lauf des Schedulers.
+        $service->noteManualCheck($this->getServer(), $found);
         $this->load();
 
         Notification::make()

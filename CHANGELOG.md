@@ -1,5 +1,23 @@
 # Änderungen
 
+## 0.5.3
+
+- **Englische Oberfläche vollständig übersetzt.** Die englische Sprachdatei
+  war zu zwei Dritteln eine deutsche Kopie; auf einem englischen Panel stand
+  „zuletzt geprueft 8 hours ago“.
+- **„Jetzt prüfen“ schreibt in die Statuszeile.** Bisher zeigte sie nur den
+  letzten Lauf des Schedulers, eine Prüfung von Hand blieb unsichtbar. Die
+  Phase eines laufenden Neustarts bleibt dabei unangetastet.
+- **„Auto-Neustart aus“ in der Statuszeile**, wenn er aus ist. Ein alter
+  Zeitstempel sah sonst nach laufender Überwachung aus.
+- **Neue Konfigurationsdateien erscheinen sofort.** Die Liste lag zehn
+  Minuten im Cache; nach einem Serverstart, der Dateien anlegt, zeigte die
+  Seite bis dahin die alte Liste. Jetzt wird das Verzeichnis bei jedem Aufruf
+  gelesen, nur die Kopfzeilen liegen im Cache, je Datei unter Größe und
+  Änderungszeit.
+- Der RCON-Hinweis nennt jetzt Vorgabe und tatsächlichen Port: „Vorgabe des
+  Mods ist Spielport + 2, hier also 2458.“
+
 ## 0.5.2
 
 - **Die Seite lädt nach „entfernen“, „installieren“ und „Speichern“ neu.**

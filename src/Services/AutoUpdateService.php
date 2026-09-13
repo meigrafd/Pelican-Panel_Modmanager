@@ -949,6 +949,25 @@ class AutoUpdateService
      * @param array<string,mixed> $state
      * @param array<string,mixed> $run
      */
+    /**
+     * Eine Pruefung von Hand im Zustand vermerken.
+     *
+     * Nur Zeitpunkt, Ergebnis und Vollstaendigkeit - die Phase eines
+     * laufenden Neustarts bleibt unangetastet, sonst koennte ein Klick auf
+     * "Jetzt pruefen" mitten in einer Warnung den Zaehler verstellen.
+     *
+     * @param  array<string,mixed>  $found  aus detect()
+     */
+    public function noteManualCheck(Server $server, array $found): void
+    {
+        $state = $this->store->read($server);
+        $run = $state['run'];
+        $run['checked_at'] = now()->timestamp;
+        $run['note'] = (string) ($found['note'] ?? '');
+        $run['degraded'] = (bool) ($found['degraded'] ?? false);
+        $this->save($server, $state, $run);
+    }
+
     private function save(Server $server, array $state, array $run): void
     {
         $state['run'] = $run;
