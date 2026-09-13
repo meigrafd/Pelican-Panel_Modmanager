@@ -1,5 +1,12 @@
 # Änderungen
 
+## 0.5.5
+
+- **Mods in der Liste verlinkt.** Der Name führt auf die Seite des Mods im
+  Repository, aus dem es geprüft wird: die Ausnahme pro Mod, sonst die
+  globale Quelle. Öffnet in einem neuen Tab. Nicht verfolgte Mods bleiben
+  ohne Link, weil ohne Autor keine Seite bestimmbar ist.
+
 ## 0.5.4
 
 - **Neuer Knopf „Neustart mit Vorwarnung“.** Löst denselben Ablauf aus wie

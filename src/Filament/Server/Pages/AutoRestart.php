@@ -694,6 +694,40 @@ class AutoRestart extends Page
 
     // -------------------------------------------------------------- anzeige
 
+    /**
+     * Seite des Mods im Repository, aus dem es geprueft wird.
+     *
+     * Dieselbe Quelle wie fuer die Versionspruefung: die Ausnahme pro Mod,
+     * sonst die globale Wahl, sonst die erste des Profils. Gelesen aus dem
+     * Formularzustand, damit der Link nach dem Speichern zur Auswahl passt.
+     *
+     * @param  array<string,mixed>  $mod
+     * @param  string  $key  entschaerfter Feldname (siehe modKey)
+     */
+    private function modPageUrl(array $mod, string $key): string
+    {
+        if (!($mod['tracked'] ?? false)) {
+            return '';
+        }
+        $auto = [
+            'source' => (string) ($this->data['source'] ?? ''),
+            'mod_sources' => [$mod['full_name'] => (string) ($this->data['mod_sources'][$key] ?? '')],
+        ];
+        $source = app(GameProfile::class)->sourceFor($this->profile, $auto, (string) $mod['full_name']);
+
+        return app(RegistryClient::class)->pageUrl($this->profile, $source, (string) $mod['namespace'], (string) $mod['name']);
+    }
+
+    /** Eintrag als Link, wenn es eine Adresse gibt; sonst unveraendert. */
+    private function linked(TextEntry $entry, string $url): TextEntry
+    {
+        if ($url === '') {
+            return $entry;
+        }
+
+        return $entry->url($url, true)->color('primary');
+    }
+
     private function configDir(): string
     {
         return trim((string) (($this->profile['loader'] ?? [])['config'] ?? ''), '/');
@@ -858,7 +892,7 @@ class AutoRestart extends Page
             $key = $this->modKey($name);
 
             $cells = [
-                TextEntry::make('mod_name_' . $i)
+                $this->linked(TextEntry::make('mod_name_' . $i), $this->modPageUrl($mod, $key))
                     ->label(trans('mar::messages.mods.name'))
                     // Nur die erste Zeile traegt Spaltenueberschriften. Ein leerer
                     // Text reicht dafuer nicht: Filament ersetzt ihn durch einen
