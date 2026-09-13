@@ -1,5 +1,22 @@
 # Änderungen
 
+## 0.6.3
+
+- **Mod-Updates werden vor dem Neustart eingespielt.** Bisher startete das
+  Plugin bei einem erkannten Mod-Update nur neu, und ein Neustart bringt kein
+  Mod-Update auf die Platte; `AUTO_UPDATE` lässt SteamCMD nur das Spiel
+  nachladen. Die Kontrolle danach fand die Mod unverändert und schaltete die
+  Funktion ab. Jetzt werden die veralteten Mods am Ende der Warnphase aus
+  ihrer jeweiligen Quelle installiert, mit Abhängigkeiten und ohne
+  Herunterstufen, dann folgt der Countdown und der Neustart.
+- **Schlägt das Einspielen fehl, wird nicht neu gestartet.** Die Funktion
+  hält an, die Historie nennt den Grund. Das gilt auch, wenn es nichts
+  einzuspielen gibt, etwa weil das Repository eine ältere Version führt.
+- Im Probelauf wird nichts eingespielt; ein Neustart von Hand spielt nichts
+  ein.
+- Tests für alle vier Fälle. Neue Datei `tests/stubs-install.php` mit
+  Ersatzteilen für Resolver und Installer, nur für die Phasentests.
+
 ## 0.6.2
 
 - **Die URL bestimmt die Quelle.** Wer einen Hexium-Link einfügt, installiert

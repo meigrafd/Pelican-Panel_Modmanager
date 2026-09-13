@@ -37,6 +37,7 @@ Dazu kommt das zweite Problem: Wer Mods lokal mit Gale pflegt und den Server von
 **Automatisch neu starten**
 - Prüft regelmäßig, ob eine installierte Mod oder der Spiel-Build neuer ist
 - Warnt die Spieler im Spiel, sichert die Welt, zählt herunter, startet neu
+- Spielt Mod-Updates vor dem Neustart ein, jede Mod aus ihrer Quelle
 - Prüft danach, ob das Update wirklich angekommen ist – wenn nicht, schaltet es sich ab
 - Historie der letzten zwanzig Neustarts mit Versionen, Grund und Ergebnis
 - Neustart mit Vorwarnung auch von Hand, als Generalprobe für den Automatikweg
@@ -115,8 +116,8 @@ Läuft in drei Stufen:
 
 1. **PHP-Syntax** aller Dateien. Ein Plugin, das nicht parst, nimmt das Panel mit einer weißen Seite runter.
 2. **`check.py`** – was `php -l` nicht findet: fehlende Übersetzungsschlüssel, `wire:click` auf Methoden, die es nicht gibt, Einstellfelder, die nirgends gelesen werden. Diese Fehler werfen keine Ausnahme; die Seite rendert, und es fällt erst auf, wenn jemand klickt.
-3. **180 Tests** ohne Panel, ohne Datenbank, ohne Spielserver:
-   - `tests/PhaseTest.php` (68) – die Neustart-Logik. Vor allem: wann *nicht* neu gestartet wird.
+3. **190 Tests** ohne Panel, ohne Datenbank, ohne Spielserver:
+   - `tests/PhaseTest.php` (78) – die Neustart-Logik. Vor allem: wann *nicht* neu gestartet wird.
    - `tests/InstallTest.php` (57) – Aufbau-Erkennung an echten Paketen, Abhängigkeiten, Kompatibilitätshinweise.
    - `tests/ConfigTest.php` (42) – BepInEx-Konfigurationsdateien lesen, prüfen und Byte-genau zurückschreiben.
    - `tests/MessengerTest.php` (13) – welche RCON-Befehle je Ansage-Einstellung rausgehen.

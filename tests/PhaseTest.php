@@ -15,12 +15,15 @@
  */
 
 require __DIR__ . '/stubs.php';
+require __DIR__ . '/stubs-install.php';
 require __DIR__ . '/../src/Services/AutoUpdateService.php';
 
 use App\Models\Server;
 use Meigrafd\ModAutoRestart\Services\AutoUpdateService;
 use Meigrafd\ModAutoRestart\Services\GameBuild;
 use Meigrafd\ModAutoRestart\Services\GameProfile;
+use Meigrafd\ModAutoRestart\Services\Installer;
+use Meigrafd\ModAutoRestart\Services\PackageResolver;
 use Meigrafd\ModAutoRestart\Services\Messenger;
 use Meigrafd\ModAutoRestart\Services\ModScanner;
 use Meigrafd\ModAutoRestart\Services\PowerService;
@@ -60,6 +63,8 @@ function resetAll(): void
     GameBuild::$result = ['outdated' => false, 'installed' => 100, 'latest' => 100];
     GameBuild::$installedBuild = 100;
     $GLOBALS['test_config'] = [];
+    PackageResolver::reset();
+    Installer::reset();
 }
 
 function service(MemoryStore $store): AutoUpdateService
@@ -72,6 +77,8 @@ function service(MemoryStore $store): AutoUpdateService
         $store,
         new GameBuild(),
         new PowerService(),
+        new PackageResolver(),
+        new Installer(),
     );
 }
 
@@ -160,6 +167,53 @@ $svc->tickServer(new Server());
 $svc->tickServer(new Server());
 ok('neuer Spiel-Build: Neustart', PowerService::$sent === ['restart']);
 
+echo "\n=== Update einspielen vor dem Neustart\n";
+
+resetAll();
+RegistryClient::$latest = ['Autor-ModA' => ['version' => '2.0.0', 'updated' => 2000, 'source' => 'thunderstore']];
+$s = store();
+$svc = service($s);
+$svc->tickServer(new Server());
+ok('waehrend der Warnung noch nichts installiert', Installer::$installed === []);
+$svc->tickServer(new Server());
+ok('vor dem Neustart wird das Update eingespielt', Installer::$installed === ['Autor-ModA'] && PowerService::$sent === ['restart']);
+ok('  aus der Quelle, gegen die geprueft wurde', (PackageResolver::$calls[0] ?? []) === ['Autor-ModA', 'thunderstore']);
+
+resetAll();
+// Download schlaegt fehl: kein Neustart, Fehlerzustand, Historie sagt warum.
+RegistryClient::$latest = ['Autor-ModA' => ['version' => '2.0.0', 'updated' => 2000, 'source' => 'thunderstore']];
+Installer::$ok = false;
+$s = store();
+$svc = service($s);
+$svc->tickServer(new Server());
+$svc->tickServer(new Server());
+ok('Einspielen scheitert: kein Neustart', PowerService::$sent === []);
+ok('  Phase failed, Funktion aus', ($s->state['run']['phase'] ?? '') === 'failed' && ($s->state['auto']['enabled'] ?? true) === false);
+ok('  Historie: fehlgeschlagen, nicht neu gestartet', ($s->state['history'][0]['outcome'] ?? '') === 'failed'
+    && str_contains($s->state['history'][0]['note'] ?? '', 'Nicht neu gestartet'));
+
+resetAll();
+// Zurueckgezogenes Update: das Repository fuehrt eine aeltere Version, der
+// Resolver hat nichts einzuspielen (kein Herunterstufen). Auch dann kein
+// Neustart - er braechte die aeltere Version nie herbei.
+RegistryClient::$latest = ['Autor-ModA' => ['version' => '0.9.0', 'updated' => 500, 'source' => 'thunderstore']];
+PackageResolver::$plans['Autor-ModA'] = ['ok' => true, 'error' => null, 'root' => null, 'install' => [],
+    'skipped' => [['full_name' => 'Autor-ModA', 'version' => '1.0.0', 'why' => 'installierte Version 1.0.0 ist neuer als 0.9.0']], 'warnings' => []];
+$s = store();
+$svc = service($s);
+$svc->tickServer(new Server());
+$svc->tickServer(new Server());
+ok('nichts einzuspielen: kein Neustart, Fehlerzustand', PowerService::$sent === [] && ($s->state['run']['phase'] ?? '') === 'failed');
+ok('  Grund nennt das Herunterstufen', str_contains($s->state['run']['note'] ?? '', 'neuer als'));
+
+resetAll();
+// Neustart von Hand mit Vorwarnung: nichts veraltet, nichts einspielen.
+$s = store(['warn_minutes' => 0]);
+$svc = service($s);
+$svc->scheduleRestart(new Server(), 'tester');
+$svc->tickServer(new Server());
+ok('Neustart von Hand: nichts eingespielt, aber neu gestartet', Installer::$installed === [] && PowerService::$sent === ['restart']);
+
 echo "\n=== Probelauf\n";
 
 resetAll();
@@ -170,6 +224,7 @@ $svc = service($s);
 $svc->tickServer(new Server());
 $svc->tickServer(new Server());
 ok('Probelauf: KEIN Neustart', PowerService::$sent === []);
+ok('  und nichts eingespielt', Installer::$installed === []);
 ok('  Historie vermerkt dry-run', ($s->state['history'][0]['outcome'] ?? '') === 'dry-run');
 ok('  Phase zurueck auf idle', ($s->state['run']['phase'] ?? '') === 'idle');
 // Ohne gesetzte Abklingzeit liefe der naechste Tick sofort wieder los und die

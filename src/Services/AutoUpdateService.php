@@ -88,6 +88,8 @@ class AutoUpdateService
         private StateStore $store,
         private GameBuild $build,
         private PowerService $power,
+        private PackageResolver $resolver,
+        private Installer $installer,
     ) {}
 
     // ------------------------------------------------------------------ start
@@ -317,6 +319,35 @@ class AutoUpdateService
             ]);
 
             return;
+        }
+
+        // Erst das Update einspielen, dann neu starten. Ein Neustart allein
+        // bringt kein Mod-Update auf die Platte - AUTO_UPDATE laesst SteamCMD
+        // nur das Spiel nachladen. Ohne diesen Schritt endete jedes erkannte
+        // Mod-Update in der Kontrolle als "immer noch nicht aktuell".
+        // Vor dem Countdown, nicht danach: schlaegt es fehl, wird nicht neu
+        // gestartet, und ein Countdown ohne Neustart waere ein leeres
+        // Versprechen an die Spieler.
+        $stale = is_array($run['stale_before'] ?? null) ? $run['stale_before'] : [];
+        if ($stale) {
+            $result = $this->installUpdates($server, $profile, $auto, $stale);
+            if (!$result['ok']) {
+                $state['history'] = $this->store->remember($state['history'] ?? [], [
+                    'at' => $now,
+                    'trigger' => (string) ($run['trigger'] ?? 'auto'),
+                    'by' => $run['by'] ?? null,
+                    'reason' => (string) ($run['reason'] ?? ''),
+                    'changes' => $this->changesBefore($run),
+                    'players' => $run['players_at_start'] ?? null,
+                    'warned' => (bool) ($run['warned'] ?? false),
+                    'outcome' => 'failed',
+                    'note' => 'Nicht neu gestartet: ' . $result['note'],
+                ]);
+                $this->stop($server, $state, 'Update konnte nicht eingespielt werden: ' . $result['note']
+                    . ' Nicht neu gestartet. Auto-Neustart ist aus.');
+
+                return;
+            }
         }
 
         $this->countdown($server, $profile, $auto, (string) ($run['reason'] ?? ''));
@@ -969,6 +1000,65 @@ class AutoUpdateService
             }
             sleep(1);
         }
+    }
+
+    // ------------------------------------------------------------ einspielen
+
+    /**
+     * Die veralteten Mods aus ihrer jeweiligen Quelle einspielen.
+     *
+     * Derselbe Weg wie der Installieren-Knopf: aufloesen (mit Abhaengigkeiten,
+     * ohne Herunterstufen), dann Paket fuer Paket installieren. Jede Mod aus
+     * der Quelle, gegen die sie geprueft wurde - nie aus einer anderen.
+     *
+     * Nichts zu installieren ist hier ein Fehler, kein Erfolg: dann fuehrt das
+     * Repository eine Version, die sich nicht einspielen laesst (meist eine
+     * aeltere, ein zurueckgezogenes Update), und ein Neustart brachte nichts.
+     *
+     * @param  array<string,mixed>  $profile
+     * @param  array<string,mixed>  $auto
+     * @param  array<string,array<string,mixed>>  $stale  id => Zeile aus detect()
+     * @return array{ok:bool,note:string,installed:array<int,string>}
+     */
+    private function installUpdates(Server $server, array $profile, array $auto, array $stale): array
+    {
+        $index = $this->scanner->index($server, $profile, true);
+        $installed = [];
+        foreach ((array) ($index['mods'] ?? []) as $mod) {
+            $installed[$mod['full_name']] = ['version' => $mod['version']];
+        }
+        $loader = (bool) (($index['loader'] ?? [])['present'] ?? false);
+
+        $notes = [];
+        foreach ($stale as $id => $row) {
+            $id = (string) $id;
+            $source = (string) ($row['source'] ?? '');
+            if ($source === '') {
+                $source = (string) $this->profiles->sourceFor($profile, $auto, $id);
+            }
+
+            $plan = $this->resolver->resolve($id, $profile, $source, $installed, $loader);
+            if (!$plan['ok']) {
+                return ['ok' => false, 'note' => $id . ': ' . $plan['error'], 'installed' => $notes];
+            }
+            if (!$plan['install']) {
+                return ['ok' => false, 'installed' => $notes,
+                    'note' => $id . ': nichts einzuspielen (' . implode('; ', array_column($plan['skipped'], 'why')) . ').'];
+            }
+
+            foreach ($plan['install'] as $package) {
+                $result = $this->installer->install($server, $package, $profile);
+                if (!$result['ok']) {
+                    return ['ok' => false, 'note' => $result['note'], 'installed' => $notes];
+                }
+                $notes[] = $result['note'];
+                $installed[$package['full_name']] = ['version' => $package['version']];
+            }
+        }
+
+        Log::info('mod-auto-restart: Updates eingespielt', ['server_id' => $server->id, 'packages' => $notes]);
+
+        return ['ok' => true, 'note' => '', 'installed' => $notes];
     }
 
     // ----------------------------------------------------------------- backup
