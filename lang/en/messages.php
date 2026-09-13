@@ -13,6 +13,7 @@ return [
         'dependency' => 'dependency',
         'update_from' => 'update from :from',
         'nothing' => 'Nothing to do - everything is already at this version.',
+        'source_from_url' => 'Source taken from the URL: :source. The installed mods will be checked against this source afterwards, regardless of the choice above.',
     ],
 
     'status' => [

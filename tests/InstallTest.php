@@ -167,6 +167,16 @@ ok('BepInExPack_V_Rising ebenso (Praefix)', $r->providesLoader('BepInExPack_V_Ri
 ok('ValheimRcon nicht', !$r->providesLoader('ValheimRcon', $valheim));
 ok('Profil ohne loader: nie', !$r->providesLoader('BepInExPack_Valheim', $GLOBALS['real_config']['profiles']['project-zomboid']));
 
+echo "\n=== Quelle aus der URL\n";
+
+$r = new PackageResolver();
+$valheim = $GLOBALS['real_config']['profiles']['valheim'];
+ok('Thunderstore-Link -> thunderstore', $r->sourceFromInput('https://thunderstore.io/c/valheim/p/Tristan/ValheimRcon/', $valheim) === 'thunderstore');
+ok('Hexium-Link -> hexium', $r->sourceFromInput('https://valheim.hexium.gg/mods/Azumatt/AzuClock', $valheim) === 'hexium');
+ok('Autor-Paket ohne URL -> null (globale Wahl)', $r->sourceFromInput('Tristan-ValheimRcon', $valheim) === null);
+ok('fremder Host -> null', $r->sourceFromInput('https://example.org/x/y', $valheim) === null);
+ok('Hexium-Link bei Spiel ohne Hexium -> null', $r->sourceFromInput('https://valheim.hexium.gg/mods/A/B', $GLOBALS['real_config']['profiles']['v-rising']) === null);
+
 echo "\n=== Eingaben lesen\n";
 
 $r = new PackageResolver();

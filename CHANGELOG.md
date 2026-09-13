@@ -1,5 +1,14 @@
 # Änderungen
 
+## 0.6.2
+
+- **Die URL bestimmt die Quelle.** Wer einen Hexium-Link einfügt, installiert
+  aus Hexium, auch wenn oben Thunderstore gewählt ist. Weicht die Quelle von
+  der globalen Wahl ab, sagt der Plan das, und nach der Installation bekommen
+  die Mods, auch mitinstallierte Abhängigkeiten, die Ausnahme „Quelle“ in
+  ihrer Zeile gesetzt. Die Prüfung sieht damit dort nach, wo installiert
+  wurde. Bei „Autor-Paket“ ohne URL gilt weiter die globale Wahl.
+
 ## 0.6.1
 
 - **Geprüft wird auch in der Abklingzeit.** Nach einem Neustart hielt die

@@ -574,6 +574,13 @@ class AutoRestart extends Page
                                 (array) ($this->plan['skipped'] ?? [])
                             )),
 
+                        TextEntry::make('plan_source')
+                            ->hiddenLabel()
+                            ->columnSpanFull()
+                            ->visible(fn () => (bool) ($this->plan['pin_source'] ?? false))
+                            ->color('gray')
+                            ->state(fn () => trans('mar::messages.add.source_from_url', ['source' => $this->plan['source'] ?? ''])),
+
                         TextEntry::make('plan_good')
                             ->hiddenLabel()
                             ->columnSpanFull()
@@ -1518,7 +1525,12 @@ class AutoRestart extends Page
             return;
         }
 
-        $source = app(GameProfile::class)->sourceFor($this->profile, $auto, '');
+        // Die URL nennt die Quelle. Weicht sie von der globalen Wahl ab, gilt
+        // trotzdem die URL, und die Mods bekommen danach eine Ausnahme, damit
+        // die Pruefung dieselbe Quelle benutzt wie die Installation.
+        $global = app(GameProfile::class)->sourceFor($this->profile, $auto, '');
+        $fromUrl = app(PackageResolver::class)->sourceFromInput($input, $this->profile);
+        $source = $fromUrl ?? $global;
         if ($source === null) {
             Notification::make()->title(trans('mar::messages.notify.no_source'))->warning()->send();
 
@@ -1552,6 +1564,8 @@ class AutoRestart extends Page
 
         $this->plan = [
             'source' => $source,
+            // Nur dann wird nach der Installation eine Ausnahme je Mod gesetzt.
+            'pin_source' => $fromUrl !== null && $fromUrl !== $global,
             'install' => $resolved['install'],
             'skipped' => $resolved['skipped'],
             'warnings' => array_merge($resolved['warnings'], $notes['warn']),
@@ -1580,10 +1594,12 @@ class AutoRestart extends Page
         $done = [];
         $failed = [];
 
+        $pinned = [];
         foreach ($this->plan['install'] as $package) {
             $result = $installer->install($server, $package, $this->profile);
             if ($result['ok']) {
                 $done[] = $result['note'];
+                $pinned[] = (string) $package['full_name'];
             } else {
                 $failed[] = $result['note'];
                 // Abbruch beim ersten Fehler. Weiterzumachen hiesse, ein Mod
@@ -1591,6 +1607,10 @@ class AutoRestart extends Page
                 // dann nicht und sagt nicht warum.
                 break;
             }
+        }
+
+        if ($pinned && ($this->plan['pin_source'] ?? false)) {
+            $this->pinSource($pinned, (string) $this->plan['source']);
         }
 
         $this->plan = null;
@@ -1792,6 +1812,24 @@ class AutoRestart extends Page
     }
 
     /** @param array<string,mixed> $auto */
+    /**
+     * Quelle je Mod festschreiben, damit die Pruefung dort nachsieht, wo
+     * installiert wurde. Auch fuer mitinstallierte Abhaengigkeiten: die kamen
+     * aus derselben Quelle.
+     *
+     * @param  array<int,string>  $fullNames
+     */
+    private function pinSource(array $fullNames, string $source): void
+    {
+        $server = $this->getServer();
+        $store = app(StateStore::class);
+        $state = $store->read($server);
+        foreach ($fullNames as $name) {
+            $state['auto']['mod_sources'][$name] = $source;
+        }
+        $store->write($server, $state);
+    }
+
     private function persist(array $auto): void
     {
         $server = $this->getServer();

@@ -203,6 +203,33 @@ class PackageResolver
         return false;
     }
 
+    /**
+     * Quelle aus einer eingegebenen URL, oder null bei "Autor-Paket".
+     *
+     * Wer einen Hexium-Link einfuegt, meint Hexium - auch wenn oben
+     * Thunderstore gewaehlt ist. Der Host der URL wird gegen die Basis-URLs
+     * der Profilquellen verglichen; passt keiner (etwa ein Hexium-Link bei
+     * einem Spiel ohne Hexium), bleibt es bei der globalen Wahl.
+     *
+     * @param  array<string,mixed>  $profile
+     */
+    public function sourceFromInput(string $input, array $profile): ?string
+    {
+        $host = strtolower((string) parse_url(trim($input), PHP_URL_HOST));
+        if ($host === '') {
+            return null;
+        }
+
+        foreach ((array) ($profile['sources'] ?? []) as $name => $base) {
+            $baseHost = strtolower((string) parse_url((string) $base, PHP_URL_HOST));
+            if ($baseHost !== '' && ($host === $baseHost || str_ends_with($host, '.' . $baseHost))) {
+                return (string) $name;
+            }
+        }
+
+        return null;
+    }
+
     // -------------------------------------------------------------- eingabe
 
     /**
