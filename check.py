@@ -135,6 +135,20 @@ def main():
         check(srcs <= urls, "Profil %s: jede Quelle hat eine page_url" % name,
               "ohne URL: %s" % sorted(srcs - urls))
 
+    # Klassen, die eine Datei benutzt, ohne sie zu importieren. PHP loest den
+    # Namen dann im eigenen Namensraum auf, php -l merkt nichts, und die
+    # Seite stirbt erst beim Rendern: "Target class [...\Pages\RegistryClient]
+    # does not exist". Genau so ist 0.5.5 auf dem Panel gestorben.
+    unimported = []
+    for php in sorted((ROOT / "src").rglob("*.php")):
+        src = php.read_text()
+        used = set(re.findall(r"app\((\w+)::class\)", src)) | set(re.findall(r"\bnew (\w+)\(", src))
+        imported = set(re.findall(r"^use [\w\\]+\\(\w+)(?: as \w+)?;", src, re.M))
+        local = {p.stem for p in php.parent.glob("*.php")}
+        for name in sorted(used - imported - local - {"self", "static", "class"}):
+            unimported.append("%s: %s" % (php.relative_to(ROOT).as_posix(), name))
+    check(not unimported, "jede Klasse ist importiert, wo sie benutzt wird", "; ".join(unimported[:4]))
+
     print()
     if FAILED:
         sys.exit("ERGEBNIS: %d Pruefung(en) fehlgeschlagen" % len(FAILED))

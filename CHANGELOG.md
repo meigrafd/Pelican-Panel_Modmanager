@@ -1,5 +1,14 @@
 # Änderungen
 
+## 0.5.6
+
+- **0.5.5 ließ die Seite nicht mehr rendern** („Target class
+  […\Pages\RegistryClient] does not exist“). Der Link auf die Modseite
+  benutzte eine Klasse ohne Import; PHP suchte sie im Namensraum der Seite.
+  `php -l` sieht das nicht. Import ergänzt.
+- `check.py` prüft jetzt in jeder Datei, ob jede per `app()` oder `new`
+  benutzte Klasse importiert ist oder im selben Ordner liegt.
+
 ## 0.5.5
 
 - **Mods in der Liste verlinkt.** Der Name führt auf die Seite des Mods im

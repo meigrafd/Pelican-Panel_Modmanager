@@ -33,6 +33,7 @@ use Meigrafd\ModAutoRestart\Services\Messenger;
 use Meigrafd\ModAutoRestart\Services\ModScanner;
 use Meigrafd\ModAutoRestart\Services\PackageResolver;
 use Meigrafd\ModAutoRestart\Services\RconClient;
+use Meigrafd\ModAutoRestart\Services\RegistryClient;
 use Meigrafd\ModAutoRestart\Services\StateStore;
 
 /**
