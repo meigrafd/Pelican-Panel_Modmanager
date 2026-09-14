@@ -1,5 +1,19 @@
 # Änderungen
 
+## 0.6.5
+
+- **Der Scheduler-Tick konnte sich für 24 Stunden selbst aussperren.** Die
+  Sperre gegen überlappende Ticks hatte keine Verfallszeit. Stirbt ein Tick
+  mittendrin, etwa durch einen PHP-Neustart während eines Countdowns, blieb
+  die Sperre bis zum Verfall stehen, und jeder weitere Tick wurde still
+  übersprungen: kein Log, kein Fehler, nur ein Plugin, das nichts mehr tat.
+  Die Sperre verfällt jetzt nach zehn Minuten; ein Tick dauert höchstens gut
+  eine Minute.
+- **Knopf „Update einspielen“ in der Mod-Zeile**, sichtbar bei „Update: …“.
+  Spielt genau diese Mod aus ihrer Quelle ein, mit Abhängigkeiten und ohne
+  Herunterstufen, und erinnert an den Neustart. Für den Fall, dass man nicht
+  auf den Automatikweg warten will oder er ausgeschaltet ist.
+
 ## 0.6.4
 
 - **Nach dem Einspielen zeigte die Liste weiter „Update: …“**, bis zur

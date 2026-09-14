@@ -39,7 +39,12 @@ class ModAutoRestartPluginProvider extends ServiceProvider
                 ->call(fn () => app(AutoUpdateService::class)->tick())
                 ->name('mar:auto-restart')
                 ->everyMinute()
-                ->withoutOverlapping();
+                // Mit Verfallszeit. Ohne Angabe haelt Laravel die Sperre 24
+                // Stunden: stirbt ein Tick mittendrin (PHP-Neustart waehrend
+                // eines Countdowns), wird bis dahin jeder weitere Tick still
+                // uebersprungen - kein Log, kein Fehler, nur ein Plugin, das
+                // nichts mehr tut. Ein Tick dauert hoechstens gut eine Minute.
+                ->withoutOverlapping(10);
 
             $this->refreshCachesAfterUpdate();
         });

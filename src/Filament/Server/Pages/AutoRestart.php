@@ -1009,6 +1009,21 @@ class AutoRestart extends Page
             $configPath = $this->configFor((string) $mod['name']);
 
             $cells[] = Actions::make([
+                // Sichtbar, sobald das Repository eine andere Version fuehrt.
+                // Spielt genau diese Mod ein, ohne Neustart - der kommt danach
+                // von Hand oder ueber den Automatikweg.
+                Action::make('update_' . $i)
+                    ->label(trans('mar::messages.mods.install_update'))
+                    ->icon('tabler-download')
+                    ->iconButton()
+                    ->color('warning')
+                    ->visible(fn () => $this->canWrite() && ($this->versions[$name]['state'] ?? '') === 'update')
+                    ->requiresConfirmation()
+                    ->modalHeading(fn () => trans('mar::messages.mods.install_update_named',
+                        ['mod' => $name, 'version' => (string) ($this->versions[$name]['latest'] ?? '')]))
+                    ->modalDescription(trans('mar::messages.mods.install_update_confirm'))
+                    ->action(fn () => $this->installUpdate($name)),
+
                 Action::make('configure_' . $i)
                     ->label(trans('mar::messages.config.for_mod', ['mod' => $name]))
                     ->icon('tabler-adjustments')
@@ -1739,6 +1754,58 @@ class AutoRestart extends Page
             ->body(trans('mar::messages.config.restart_hint'))
             ->success()
             ->send();
+    }
+
+    /**
+     * Das Update einer einzelnen Mod einspielen, aus der Quelle, gegen die
+     * sie geprueft wird. Baut den Plan wie "Pruefen" und fuehrt ihn wie
+     * "Installieren" aus - mit Abhaengigkeiten, ohne Herunterstufen.
+     */
+    public function installUpdate(string $fullName): void
+    {
+        abort_unless($this->canWrite(), 403);
+
+        $auto = $this->toAuto();
+        $source = app(GameProfile::class)->sourceFor($this->profile, $auto, $fullName);
+        if ($source === null) {
+            Notification::make()->title(trans('mar::messages.notify.no_source'))->warning()->send();
+
+            return;
+        }
+
+        $installed = [];
+        foreach ($this->mods as $mod) {
+            $installed[$mod['full_name']] = ['version' => $mod['version']];
+        }
+
+        $resolved = app(PackageResolver::class)->resolve(
+            $fullName, $this->profile, $source, $installed, (bool) ($this->loader['present'] ?? false)
+        );
+        if (!$resolved['ok']) {
+            Notification::make()->title($resolved['error'])->danger()->send();
+
+            return;
+        }
+        if (!$resolved['install']) {
+            Notification::make()
+                ->title(trans('mar::messages.add.nothing'))
+                ->body(implode("\n", array_map(fn ($r) => $r['full_name'] . ' — ' . $r['why'], $resolved['skipped'])))
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        $this->plan = [
+            'source' => $source,
+            'pin_source' => false,
+            'install' => $resolved['install'],
+            'skipped' => $resolved['skipped'],
+            'warnings' => $resolved['warnings'],
+            'stop' => [],
+            'good' => [],
+        ];
+        $this->install();
     }
 
     /** Ein Mod entfernen. */
