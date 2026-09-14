@@ -57,6 +57,17 @@ namespace {
         }
         $GLOBALS['real_config'] = require __DIR__ . '/../config/mod-auto-restart.php';
 
+        // plugin_path() ist Pelicans Helfer; hier zeigt er in einen
+        // Wegwerfordner, damit ein Test ein "installiertes" Plugin
+        // vortaeuschen kann, indem er den Ordner anlegt.
+        $GLOBALS['test_plugins_dir'] = sys_get_temp_dir() . '/mar-test-plugins-' . getmypid();
+        if (!function_exists('plugin_path')) {
+            function plugin_path(string $plugin, string ...$paths): string
+            {
+                return $GLOBALS['test_plugins_dir'] . '/' . $plugin . ($paths ? '/' . implode('/', $paths) : '');
+            }
+        }
+
         function config($key, $default = null)
         {
             if (array_key_exists($key, $GLOBALS['test_config'])) {

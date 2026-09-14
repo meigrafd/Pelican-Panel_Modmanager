@@ -44,6 +44,11 @@ return [
     |                `config` ist der Ordner mit den Konfigurationsdateien
     |                der Mods; die Seite bietet dafuer einen Editor an.
     |
+    |   yield_to     Id eines anderen Plugins. Ist es installiert, laesst
+    |                dieses Plugin ihm bei allen Servern des Profils den
+    |                Vortritt: keine Seite, kein Tick. Zwei Plugins, die
+    |                denselben Server neu starten, sind eines zu viel.
+    |
     |   sources      Welche Repositorys dieses Spiel fuehren. Der Schluessel ist
     |                der Name in der Auswahl, der Wert die Basis-URL. Bei
     |                Thunderstore ist die URL fuer ALLE Spiele dieselbe: der
@@ -194,6 +199,9 @@ return [
         'project-zomboid' => [
             'label' => 'Project Zomboid (nur Spiel-Updates)',
             'egg_match' => ['zomboid'],
+            // pz-mod-manager kann das besser: Workshop-Mods, servertest.ini.
+            // Ist es da, uebernimmt es Project Zomboid komplett.
+            'yield_to' => 'pz-mod-manager',
             'app_id' => '380870',
             'mods_path' => null,
             'layout' => 'thunderstore',
@@ -246,9 +254,26 @@ return [
     |
     */
 
-    // Nur Server anzeigen, deren Egg zu einem Profil passt. Auf false gesetzt
-    // taucht die Seite bei jedem Server auf und faellt auf 'generic' zurueck.
-    'require_known_profile' => false,
+    /*
+    |--------------------------------------------------------------------------
+    | Einstellungen aus dem Panel
+    |--------------------------------------------------------------------------
+    |
+    | Admin -> Plugins -> Zahnrad bei diesem Plugin. Gespeichert wird in der
+    | .env des Panels, wie bei Pelicans eigenen Einstellungen; hier stehen
+    | nur die Vorgaben.
+    |
+    */
+
+    // Nur Server anzeigen, deren Egg zu einem Profil passt. Sonst taucht die
+    // Seite bei jedem Server auf und faellt auf 'generic' zurueck.
+    'require_known_profile' => filter_var(env('MAR_REQUIRE_KNOWN_PROFILE', false), FILTER_VALIDATE_BOOLEAN),
+
+    // Namensteile von Eggs, die dieses Plugin nicht anfasst: keine Seite,
+    // kein Tick. Fuer alles, was kein Profil mit yield_to abdeckt.
+    'ignored_eggs' => array_values(array_filter(array_map('trim',
+        explode(',', (string) env('MAR_IGNORED_EGGS', ''))
+    ), fn ($s) => $s !== '')),
 
     /*
     |--------------------------------------------------------------------------
@@ -268,11 +293,11 @@ return [
     | will, laesst die Nachrichtenfelder leer oder traegt kein RCON-Passwort ein.
     |
     */
-    'dry_run' => env('MAR_DRY_RUN', false),
+    'dry_run' => filter_var(env('MAR_DRY_RUN', false), FILTER_VALIDATE_BOOLEAN),
 
     'cache' => [
-        'index_minutes' => 10,
-        'registry_minutes' => 10,
-        'build_minutes' => 10,
+        'index_minutes' => (int) env('MAR_CACHE_MINUTES', 10),
+        'registry_minutes' => (int) env('MAR_CACHE_MINUTES', 10),
+        'build_minutes' => (int) env('MAR_CACHE_MINUTES', 10),
     ],
 ];

@@ -132,6 +132,12 @@ class AutoUpdateService
     /** Ein Server. Oeffentlich, damit ein Test oder ein Operator direkt treiben kann. */
     public function tickServer(Server $server): void
     {
+        // Vor dem Lesen des Zustands: ein ausgeschlossener Server bleibt
+        // ausgeschlossen, auch wenn dort noch "an" gespeichert ist.
+        if ($this->profiles->skipReason($server) !== null) {
+            return;
+        }
+
         $state = $this->store->read($server);
 
         // Ein von Hand geplanter Neustart laeuft auch bei ausgeschaltetem

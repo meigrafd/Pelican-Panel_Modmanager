@@ -137,6 +137,17 @@ return [
         'restart_hint' => 'Die meisten Mods lesen ihre Datei nur beim Start. Server neu starten, damit die Aenderung wirkt.',
     ],
 
+    'plugin' => [
+        'ignored_eggs' => 'Ignorierte Eggs',
+        'ignored_eggs_hint' => 'Namensteile, ein Eintrag je Zeile, Gross-/Kleinschreibung egal. Server mit passendem Egg bekommen keine Seite und werden vom Scheduler uebergangen. Project Zomboid wird automatisch uebergangen, sobald pz-mod-manager installiert ist.',
+        'require_known' => 'Nur Server mit bekanntem Spielprofil',
+        'require_known_hint' => 'Aus: die Seite erscheint bei jedem Server und faellt auf das Profil "Anderes Spiel" zurueck.',
+        'dry_run' => 'Probelauf',
+        'dry_run_hint' => 'Panelweit. Erkennung, Warnungen, Backup und Historie laufen wie sonst, nur der Neustart selbst wird unterdrueckt und als Probelauf vermerkt.',
+        'cache_minutes' => 'Cache in Minuten',
+        'cache_minutes_hint' => 'Wie lange Mod-Index, Repository-Antworten und Spiel-Build zwischengespeichert werden. "Jetzt pruefen" holt immer frisch.',
+    ],
+
     'history' => [
         'heading' => 'Neustart-Historie',
         'intro' => 'Die letzten zwanzig Neustarts, die dieses Plugin ausgeloest hat.',

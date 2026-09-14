@@ -378,6 +378,37 @@ ok('  Auto-Neustart bleibt aus', ($s->state['auto']['enabled'] ?? true) === fals
 ok('  Willkommensnachricht ging raus', in_array(StateStore::AUTO_DEFAULTS['msg_back'], Messenger::$said, true));
 ok('  kein zweiter Neustart', PowerService::$sent === ['restart']);
 
+echo "\n=== Server, die das Plugin nicht anfasst\n";
+
+$pz = new Server('1', 'Project Zomboid');
+$pzDir = plugin_path('pz-mod-manager');
+@rmdir($pzDir);
+
+resetAll();
+ok('ohne pz-mod-manager: Project Zomboid wird bedient', (new GameProfile())->skipReason($pz) === null);
+
+@mkdir($pzDir, 0777, true);
+resetAll();
+$why = (new GameProfile())->skipReason($pz);
+ok('mit pz-mod-manager: Project Zomboid wird uebergangen', $why !== null && str_contains($why, 'pz-mod-manager'), (string) $why);
+ok('  Valheim davon unberuehrt', (new GameProfile())->skipReason(new Server()) === null);
+
+// Und der Tick haelt sich daran, auch wenn dort "an" gespeichert ist und
+// ein Spiel-Update vorliegt.
+GameBuild::$result = ['outdated' => true, 'installed' => 100, 'latest' => 200];
+$s = store();
+$svc = service($s);
+$svc->tickServer($pz);
+$svc->tickServer($pz);
+ok('  Tick uebergeht den Server: kein Neustart, Phase bleibt idle', PowerService::$sent === [] && ($s->state['run']['phase'] ?? 'idle') === 'idle');
+@rmdir($pzDir);
+
+resetAll();
+$GLOBALS['test_config']['mod-auto-restart.ignored_eggs'] = ['palworld', 'ZOMBOID'];
+ok('ignorierte Eggs: Namensteil, ohne Gross-/Kleinschreibung', (new GameProfile())->skipReason($pz) !== null);
+ok('  Valheim bleibt', (new GameProfile())->skipReason(new Server()) === null);
+$GLOBALS['test_config'] = [];
+
 echo "\n=== AUTO_UPDATE\n";
 
 resetAll();

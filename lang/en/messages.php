@@ -137,6 +137,17 @@ return [
         'restart_hint' => 'Most mods only read their file on startup. Restart the server for the change to take effect.',
     ],
 
+    'plugin' => [
+        'ignored_eggs' => 'Ignored eggs',
+        'ignored_eggs_hint' => 'Name fragments, one per line, case-insensitive. Servers with a matching egg get no page and are skipped by the scheduler. Project Zomboid is skipped automatically once pz-mod-manager is installed.',
+        'require_known' => 'Only servers with a known game profile',
+        'require_known_hint' => 'Off: the page appears on every server and falls back to the "Other game" profile.',
+        'dry_run' => 'Dry run',
+        'dry_run_hint' => 'Panel-wide. Detection, warnings, backup and history run as usual; only the restart itself is suppressed and recorded as a dry run.',
+        'cache_minutes' => 'Cache in minutes',
+        'cache_minutes_hint' => 'How long the mod index, repository answers and game build are cached. "Check now" always fetches fresh.',
+    ],
+
     'history' => [
         'heading' => 'Restart history',
         'intro' => 'The last twenty restarts this plugin triggered.',

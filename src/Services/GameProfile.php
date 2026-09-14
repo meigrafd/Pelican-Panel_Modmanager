@@ -25,6 +25,38 @@ use App\Models\Server;
 class GameProfile
 {
     /**
+     * Warum dieses Plugin einen Server nicht anfasst - oder null.
+     *
+     * Zwei Gruende: das Egg steht in den ignorierten Eggs, oder das Profil
+     * laesst einem anderen Plugin den Vortritt (`yield_to`) und das ist
+     * installiert. Gilt fuer Seite, Scheduler und mar:check gleichermassen -
+     * ein Server, der hier aussteigt, bekommt nichts, auch keinen Neustart,
+     * egal was in seiner Zustandsdatei steht.
+     */
+    public function skipReason(Server $server): ?string
+    {
+        $egg = (string) ($server->egg->name ?? '');
+        foreach ((array) config('mod-auto-restart.ignored_eggs', []) as $needle) {
+            $needle = trim((string) $needle);
+            if ($needle !== '' && stripos($egg, $needle) !== false) {
+                return 'Egg "' . $egg . '" ist in den Einstellungen ausgeschlossen ("' . $needle . '").';
+            }
+        }
+
+        $yield = trim((string) ($this->for($server)['yield_to'] ?? ''));
+        if ($yield !== '' && $this->pluginInstalled($yield)) {
+            return 'Plugin ' . $yield . ' ist installiert und fuer dieses Spiel zustaendig.';
+        }
+
+        return null;
+    }
+
+    private function pluginInstalled(string $id): bool
+    {
+        return function_exists('plugin_path') && is_dir(plugin_path($id));
+    }
+
+    /**
      * @param  array<string,mixed>  $auto  Gespeicherte Einstellungen des Servers
      * @return array<string,mixed>
      */

@@ -69,11 +69,13 @@ def main():
     # weggefallen - ohne Fehler, ohne fehlgeschlagenen Test.
     all_src = (page + blade
                + "".join(p.read_text() for p in (ROOT / "src").rglob("*.php")))
-    used_all = set(re.findall(r"mar::messages\.([a-z_.]+)", all_src))
+    # Zwei Namensraeume: 'mar' auf der Server-Seite, die Plugin-Id im Admin
+    # (dort registriert Pelican die Uebersetzungen, unser register() nicht).
+    used_all = set(re.findall(r"(?:mar|mod-auto-restart)::messages\.([a-z_.]+)", all_src))
     orphans = sorted(k for k in de
                      if k not in used_all
                      and not any(k.startswith(pre) for pre in
-                                 re.findall(r"mar::messages\.([a-z_.]+\.)'\s*\.", all_src)))
+                                 re.findall(r"(?:mar|mod-auto-restart)::messages\.([a-z_.]+\.)'\s*\.", all_src)))
     check(not orphans, "kein Uebersetzungsschluessel ist verwaist (%d)" % len(de),
           ", ".join(orphans[:8]))
 

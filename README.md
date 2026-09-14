@@ -58,6 +58,8 @@ Dazu kommt das zweite Problem: Wer Mods lokal mit Gale pflegt und den Server von
 
 Alles Spielspezifische steht als Daten in `config/mod-auto-restart.php`. Ein neues Spiel ist ein Eintrag dort, kein Code. Steam-App-ID und Mod-Ordner lassen sich außerdem pro Server auf der Seite überschreiben.
 
+Ist [pz-mod-manager](https://github.com/WildBrianNL/pz-mod-manager) installiert, überlässt dieses Plugin ihm Project Zomboid: keine Seite, kein Tick. Panelweite Einstellungen (ignorierte Eggs, Probelauf, Cache) stehen unter Admin → Plugins → Zahnrad.
+
 ---
 
 ## Installation
@@ -116,8 +118,8 @@ Läuft in drei Stufen:
 
 1. **PHP-Syntax** aller Dateien. Ein Plugin, das nicht parst, nimmt das Panel mit einer weißen Seite runter.
 2. **`check.py`** – was `php -l` nicht findet: fehlende Übersetzungsschlüssel, `wire:click` auf Methoden, die es nicht gibt, Einstellfelder, die nirgends gelesen werden. Diese Fehler werfen keine Ausnahme; die Seite rendert, und es fällt erst auf, wenn jemand klickt.
-3. **191 Tests** ohne Panel, ohne Datenbank, ohne Spielserver:
-   - `tests/PhaseTest.php` (79) – die Neustart-Logik. Vor allem: wann *nicht* neu gestartet wird.
+3. **197 Tests** ohne Panel, ohne Datenbank, ohne Spielserver:
+   - `tests/PhaseTest.php` (85) – die Neustart-Logik. Vor allem: wann *nicht* neu gestartet wird.
    - `tests/InstallTest.php` (57) – Aufbau-Erkennung an echten Paketen, Abhängigkeiten, Kompatibilitätshinweise.
    - `tests/ConfigTest.php` (42) – BepInEx-Konfigurationsdateien lesen, prüfen und Byte-genau zurückschreiben.
    - `tests/MessengerTest.php` (13) – welche RCON-Befehle je Ansage-Einstellung rausgehen.

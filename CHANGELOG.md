@@ -1,5 +1,19 @@
 # Änderungen
 
+## 0.6.6
+
+- **Einstellungen im Panel.** Admin → Plugins → Zahnrad bei diesem Plugin:
+  ignorierte Eggs, nur bekannte Profile, Probelauf, Cache-Dauer. Gespeichert
+  wird in der `.env` des Panels, wie bei Pelicans eigenen Einstellungen.
+  `MAR_DRY_RUN` von Hand ist damit nicht mehr nötig.
+- **Project Zomboid wird pz-mod-manager überlassen.** Ist das Plugin
+  installiert, bekommen PZ-Server keine Seite und keinen Tick von uns, egal
+  was in ihrer Zustandsdatei steht; `mar:check` zeigt „Übersprungen“ mit
+  Grund. Zwei Plugins, die denselben Server neu starten, sind eines zu viel.
+  Profile tragen dafür den Schlüssel `yield_to`.
+- **Ignorierte Eggs** als allgemeiner Schalter für alles, was kein Profil
+  abdeckt: Namensteile, ein Eintrag je Zeile.
+
 ## 0.6.5
 
 - **Der Scheduler-Tick konnte sich für 24 Stunden selbst aussperren.** Die

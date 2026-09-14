@@ -162,6 +162,9 @@ class AutoRestart extends Page
             && app(GameProfile::class)->detect($server) === null) {
             return false;
         }
+        if (app(GameProfile::class)->skipReason($server) !== null) {
+            return false;
+        }
 
         return (bool) user()?->can(SubuserPermission::FileRead, $server);
     }

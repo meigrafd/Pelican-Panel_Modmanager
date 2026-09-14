@@ -52,11 +52,19 @@ class CheckCommand extends Command
         $out = [];
 
         foreach ($servers as $server) {
+            $this->line('<options=bold>' . $server->name . '</>  (Id ' . $server->id . ')');
+
+            if (($why = $profiles->skipReason($server)) !== null) {
+                $this->line('  Uebersprungen    ' . $why);
+                $this->newLine();
+
+                continue;
+            }
+
             $state = $store->read($server);
             $auto = $state['auto'];
             $profile = $profiles->for($server, $auto);
 
-            $this->line('<options=bold>' . $server->name . '</>  (Id ' . $server->id . ')');
             $this->line('  Egg              ' . ($server->egg->name ?? '?'));
             $this->line('  Profil           ' . $profile['label'] . ' [' . $profile['key'] . ']'
                 . (($auto['profile'] ?? '') !== '' ? ' (von Hand gesetzt)' : ' (erkannt)'));
