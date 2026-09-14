@@ -331,6 +331,10 @@ class AutoUpdateService
         $stale = is_array($run['stale_before'] ?? null) ? $run['stale_before'] : [];
         if ($stale) {
             $result = $this->installUpdates($server, $profile, $auto, $stale);
+            // Der Index wurde VOR dem Einspielen frisch gelesen und liegt mit
+            // den alten Nummern im Cache. Weg damit, sonst meldet die Seite bis
+            // zur Kontrolle ein Update, das laengst auf der Platte liegt.
+            $this->scanner->forget($server, $profile);
             if (!$result['ok']) {
                 $state['history'] = $this->store->remember($state['history'] ?? [], [
                     'at' => $now,

@@ -67,6 +67,19 @@ class ModScanner
         return $result;
     }
 
+    /**
+     * Den zwischengespeicherten Index verwerfen - nach allem, was den
+     * Mod-Ordner veraendert. Sonst zeigt die Seite bis zu zehn Minuten lang
+     * Versionen, die nicht mehr auf der Platte liegen.
+     *
+     * @param  array<string,mixed>  $profile
+     */
+    public function forget(Server $server, array $profile): void
+    {
+        $path = trim((string) ($profile['mods_path'] ?? ''), '/');
+        Cache::forget("mar:index:{$server->id}:" . md5($path));
+    }
+
     /** @return array{ok:bool,mods:array<int,array<string,mixed>>,loader:array{present:bool,marker:string},note:string} */
     private function scan(Server $server, string $path, string $layout, string $marker): array
     {

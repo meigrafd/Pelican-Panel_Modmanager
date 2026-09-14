@@ -1844,8 +1844,7 @@ class AutoRestart extends Page
 
     private function forgetIndex(): void
     {
-        $path = trim((string) ($this->profile['mods_path'] ?? ''), '/');
-        \Illuminate\Support\Facades\Cache::forget("mar:index:{$this->getServer()->id}:" . md5($path));
+        app(ModScanner::class)->forget($this->getServer(), $this->profile);
     }
 
     /**

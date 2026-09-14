@@ -1,5 +1,12 @@
 # Änderungen
 
+## 0.6.4
+
+- **Nach dem Einspielen zeigte die Liste weiter „Update: …“**, bis zur
+  Kontrolle nach dem Neustart, also mindestens fünf Minuten. Der Mod-Index
+  wurde vor dem Einspielen frisch gelesen und lag danach mit den alten
+  Nummern im Cache. Er wird jetzt direkt nach dem Einspielen verworfen.
+
 ## 0.6.3
 
 - **Mod-Updates werden vor dem Neustart eingespielt.** Bisher startete das

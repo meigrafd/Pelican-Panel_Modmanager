@@ -167,9 +167,17 @@ namespace Meigrafd\ModAutoRestart\Services {
 
         public static bool $ok = true;
 
+        /** Wie oft der Index verworfen wurde. */
+        public static int $forgotten = 0;
+
         public function index($server, array $profile, bool $fresh = false): array
         {
             return ['ok' => self::$ok, 'mods' => self::$installed, 'note' => 'Test'];
+        }
+
+        public function forget($server, array $profile): void
+        {
+            self::$forgotten++;
         }
     }
 

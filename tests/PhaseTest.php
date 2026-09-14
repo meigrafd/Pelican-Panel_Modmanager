@@ -53,6 +53,7 @@ function resetAll(): void
     Messenger::$players = 0;
     Messenger::$working = true;
     ModScanner::$ok = true;
+    ModScanner::$forgotten = 0;
     ModScanner::$installed = [
         ['full_name' => 'Autor-ModA', 'namespace' => 'Autor', 'name' => 'ModA',
             'version' => '1.0.0', 'folder' => 'Autor-ModA', 'tracked' => true],
@@ -178,6 +179,7 @@ ok('waehrend der Warnung noch nichts installiert', Installer::$installed === [])
 $svc->tickServer(new Server());
 ok('vor dem Neustart wird das Update eingespielt', Installer::$installed === ['Autor-ModA'] && PowerService::$sent === ['restart']);
 ok('  aus der Quelle, gegen die geprueft wurde', (PackageResolver::$calls[0] ?? []) === ['Autor-ModA', 'thunderstore']);
+ok('  der Mod-Index wird danach verworfen', ModScanner::$forgotten >= 1);
 
 resetAll();
 // Download schlaegt fehl: kein Neustart, Fehlerzustand, Historie sagt warum.
