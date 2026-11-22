@@ -53,6 +53,7 @@ Dazu kommt das zweite Problem: Wer Mods lokal mit Gale pflegt und den Server von
 | V Rising | 1829350 | Thunderstore | — |
 | Core Keeper | 1963720 | Thunderstore | — |
 | Sunkenland | 2667530 | Thunderstore, Hexium | — |
+| Enshrouded | 2278520 | — (nur Spiel-Updates) | — |
 | Project Zomboid | 380870 | — (nur Spiel-Updates) | Panel-Konsole |
 | Anderes Spiel | selbst eintragen | Thunderstore | — |
 
@@ -118,8 +119,8 @@ Läuft in drei Stufen:
 
 1. **PHP-Syntax** aller Dateien. Ein Plugin, das nicht parst, nimmt das Panel mit einer weißen Seite runter.
 2. **`check.py`** – was `php -l` nicht findet: fehlende Übersetzungsschlüssel, `wire:click` auf Methoden, die es nicht gibt, Einstellfelder, die nirgends gelesen werden. Diese Fehler werfen keine Ausnahme; die Seite rendert, und es fällt erst auf, wenn jemand klickt.
-3. **197 Tests** ohne Panel, ohne Datenbank, ohne Spielserver:
-   - `tests/PhaseTest.php` (85) – die Neustart-Logik. Vor allem: wann *nicht* neu gestartet wird.
+3. **204 Tests** ohne Panel, ohne Datenbank, ohne Spielserver:
+   - `tests/PhaseTest.php` (92) – die Neustart-Logik. Vor allem: wann *nicht* neu gestartet wird.
    - `tests/InstallTest.php` (57) – Aufbau-Erkennung an echten Paketen, Abhängigkeiten, Kompatibilitätshinweise.
    - `tests/ConfigTest.php` (42) – BepInEx-Konfigurationsdateien lesen, prüfen und Byte-genau zurückschreiben.
    - `tests/MessengerTest.php` (13) – welche RCON-Befehle je Ansage-Einstellung rausgehen.

@@ -191,6 +191,32 @@ return [
         ],
 
         /*
+        | Enshrouded. Nur Spiel-Updates, und das mit Absicht:
+        |
+        |   Mods      Weder Thunderstore (376 Communities, Enshrouded ist nicht
+        |             dabei) noch Hexium fuehren das Spiel. Die Mods liegen bei
+        |             Nexus, und dessen Downloads brauchen ein Konto mit
+        |             API-Schluessel - nichts, was ein Server unbeaufsichtigt
+        |             abholen kann. Kein BepInEx: das Spiel ist kein Unity.
+        |   Ansage    Der Server hat kein RCON und nimmt keine Befehle auf
+        |             stdin. Der Neustart laeuft also ohne Vorwarnung.
+        |   Spiel     Steam-App 2278520, nur als Windows-Depot; das Egg laesst
+        |             sie unter Proton laufen. Das appmanifest liegt trotzdem
+        |             unter steamapps/, die Build-Pruefung funktioniert wie
+        |             bei jedem SteamCMD-Spiel, AUTO_UPDATE ebenso.
+        */
+        'enshrouded' => [
+            'label' => 'Enshrouded (nur Spiel-Updates)',
+            'egg_match' => ['enshrouded'],
+            'app_id' => '2278520',
+            'mods_path' => null,
+            'layout' => 'thunderstore',
+            'sources' => [],
+            'page_url' => [],
+            'messaging' => ['via' => 'none'],
+        ],
+
+        /*
         | Projekt Zomboid, der Ausgangspunkt dieses Plugins. Keine Mod-Quelle -
         | die Mods kommen aus dem Steam Workshop, den dieses Plugin nicht
         | abfragt. Was bleibt, ist die Ueberwachung des Spiel-Builds, und die

@@ -1,5 +1,15 @@
 # Änderungen
 
+## 0.6.7
+
+- **Enshrouded als Spielprofil**, nur Spiel-Updates. Erkannt am Egg-Namen,
+  Steam-App 2278520. Der Server wird bei einem neuen Build neu gestartet und
+  danach kontrolliert, wie bei jedem SteamCMD-Spiel.
+- Bewusst ohne Mods: Weder Thunderstore noch Hexium führen Enshrouded, die
+  Mods liegen bei Nexus, und dessen Downloads brauchen ein Konto mit
+  API-Schlüssel. Bewusst ohne Vorwarnung: der Server hat kein RCON und nimmt
+  keine Befehle auf der Konsole an.
+
 ## 0.6.6
 
 - **Einstellungen im Panel.** Admin → Plugins → Zahnrad bei diesem Plugin:

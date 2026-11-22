@@ -378,6 +378,31 @@ ok('  Auto-Neustart bleibt aus', ($s->state['auto']['enabled'] ?? true) === fals
 ok('  Willkommensnachricht ging raus', in_array(StateStore::AUTO_DEFAULTS['msg_back'], Messenger::$said, true));
 ok('  kein zweiter Neustart', PowerService::$sent === ['restart']);
 
+echo "\n=== Enshrouded: nur Spiel-Updates\n";
+
+$ens = new Server('1', 'Enshrouded');
+resetAll();
+$ensProfile = (new GameProfile())->for($ens);
+ok('Egg "Enshrouded" ergibt das Profil enshrouded', ($ensProfile['key'] ?? '') === 'enshrouded');
+ok('  Steam-App 2278520, keine Mod-Quelle, kein Mod-Ordner',
+    $GLOBALS['real_config']['profiles']['enshrouded']['app_id'] === '2278520'
+    // array_key_exists, nicht ??: der Wert darf null sein, und ?? hielte ihn fuer fehlend.
+    && ($ensProfile['sources'] ?? null) === []
+    && array_key_exists('mods_path', $ensProfile) && $ensProfile['mods_path'] === null);
+ok('  kein Ansageweg', (($ensProfile['messaging'] ?? [])['via'] ?? '') === 'none');
+ok('  wird nicht uebergangen', (new GameProfile())->skipReason($ens) === null);
+
+// Mod-Update im Repository UND Spiel-Update: ohne Quelle zaehlt nur das Spiel.
+RegistryClient::$latest = ['Autor-ModA' => ['version' => '2.0.0', 'updated' => 2000, 'source' => 'thunderstore']];
+GameBuild::$result = ['outdated' => true, 'installed' => 100, 'latest' => 200];
+$s = store();
+$svc = service($s);
+$svc->tickServer($ens);
+ok('Spiel-Update: Grund ist nur das Spiel', ($s->state['run']['reason'] ?? '') === 'Spiel');
+$svc->tickServer($ens);
+ok('  Neustart geht raus, nichts wird eingespielt', PowerService::$sent === ['restart'] && Installer::$installed === []);
+ok('  das Repository wurde gar nicht gefragt', RegistryClient::$calls === 0);
+
 echo "\n=== Server, die das Plugin nicht anfasst\n";
 
 $pz = new Server('1', 'Project Zomboid');
