@@ -22,6 +22,7 @@ use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
+use Illuminate\Support\HtmlString;
 use Meigrafd\ModAutoRestart\Services\AutoUpdateService;
 use Meigrafd\ModAutoRestart\Services\Compatibility;
 use Meigrafd\ModAutoRestart\Services\ConfigFile;
@@ -373,6 +374,18 @@ class AutoRestart extends Page
                     ->selectablePlaceholder(false)
                     ->disabled(!$writable),
 
+                Select::make('wait_empty_minutes')
+                    ->label(trans('mar::messages.settings.wait_empty'))
+                    ->options([
+                        0 => trans('mar::messages.settings.wait_empty_off'),
+                        60 => '60', 120 => '120',
+                        180 => trans('mar::messages.settings.recommended', ['n' => 180]),
+                        240 => '240', 360 => '360', 720 => '720',
+                    ])
+                    ->selectablePlaceholder(false)
+                    ->helperText(trans('mar::messages.settings.wait_empty_hint'))
+                    ->disabled(!$writable),
+
                 Select::make('check_minutes')
                     ->label(trans('mar::messages.settings.interval'))
                     ->options([
@@ -418,7 +431,9 @@ class AutoRestart extends Page
                             ->hiddenLabel()
                             ->columnSpanFull()
                             ->state(fn () => match ($this->messagingVia()) {
-                                'none' => trans('mar::messages.settings.msg_none'),
+                                'none' => $this->hasQuery()
+                                    ? trans('mar::messages.settings.msg_none_query')
+                                    : trans('mar::messages.settings.msg_none'),
                                 'console' => trans('mar::messages.settings.msg_console'),
                                 default => $this->messagingMod()
                                     ? trans('mar::messages.settings.msg_rcon_mod', [
@@ -467,6 +482,44 @@ class AutoRestart extends Page
                                 && trim((string) (($this->profile['messaging'] ?? [])['chat'] ?? '')) !== '')
                             ->disabled(!$writable),
 
+                        TextInput::make('query_host')
+                            ->label(trans('mar::messages.settings.query_host'))
+                            ->placeholder(trans('mar::messages.settings.query_host_placeholder'))
+                            ->visible(fn () => $this->hasQuery())
+                            ->disabled(!$writable),
+
+                        TextInput::make('query_port')
+                            ->label(trans('mar::messages.settings.query_port'))
+                            ->placeholder(fn () => trans('mar::messages.settings.query_port_placeholder', [
+                                'port' => app(Messenger::class)->queryTarget($this->getServer(), $this->profile, [])['port'],
+                            ]))
+                            ->numeric()
+                            ->visible(fn () => $this->hasQuery())
+                            ->disabled(!$writable),
+
+                        TextInput::make('discord_webhook')
+                            ->label(trans('mar::messages.settings.discord_webhook'))
+                            ->placeholder('https://discord.com/api/webhooks/...')
+                            ->password()
+                            ->revealable()
+                            ->helperText(trans('mar::messages.settings.discord_hint'))
+                            ->columnSpanFull()
+                            ->live(onBlur: true)
+                            ->disabled(!$writable),
+
+                        TextInput::make('discord_msg_warn')
+                            ->label(trans('mar::messages.settings.discord_msg_warn'))
+                            ->columnSpanFull()
+                            ->visible(fn (Get $get) => trim((string) $get('discord_webhook')) !== '')
+                            ->disabled(!$writable),
+
+                        TextInput::make('discord_msg_back')
+                            ->label(trans('mar::messages.settings.discord_msg_back'))
+                            ->columnSpanFull()
+                            ->helperText(trans('mar::messages.settings.discord_placeholders'))
+                            ->visible(fn (Get $get) => trim((string) $get('discord_webhook')) !== '')
+                            ->disabled(!$writable),
+
                         Actions::make([
                             Action::make('test_messaging')
                                 ->label(trans('mar::messages.action.test_messaging'))
@@ -475,7 +528,8 @@ class AutoRestart extends Page
                                 ->action('testMessaging'),
                         ])
                             ->columnSpanFull()
-                            ->visible(fn () => $this->messagingVia() !== 'none'),
+                            ->visible(fn (Get $get) => $this->messagingVia() !== 'none' || $this->hasQuery()
+                                || trim((string) $get('discord_webhook')) !== ''),
                     ]),
 
                 Fieldset::make(trans('mar::messages.settings.advanced'))
@@ -1205,6 +1259,12 @@ class AutoRestart extends Page
         return (string) (($this->profile['messaging'] ?? [])['via'] ?? 'none');
     }
 
+    /** Bietet das Profil die Steam-Serverabfrage fuer die Spielerzahl an? */
+    private function hasQuery(): bool
+    {
+        return is_array($this->profile['query'] ?? null);
+    }
+
     private function messagingMod(): string
     {
         return (string) (($this->profile['messaging'] ?? [])['needs_mod'] ?? '');
@@ -1317,6 +1377,18 @@ class AutoRestart extends Page
         $service = app(AutoUpdateService::class);
         $auto = $this->toAuto();
 
+        // Ein Tippfehler in der Adresse ergaebe stille Fehlschlaege bei jedem
+        // Neustart. Lieber jetzt sagen.
+        $webhook = trim((string) ($auto['discord_webhook'] ?? ''));
+        if ($webhook !== '' && !Messenger::webhookValid($webhook)) {
+            Notification::make()
+                ->title(trans('mar::messages.notify.discord_invalid'))
+                ->danger()
+                ->send();
+
+            return;
+        }
+
         // Die einzige Verweigerung. Ohne AUTO_UPDATE laedt der Start nichts
         // nach, das Update steht danach immer noch aus, und die naechste
         // Pruefung startet wieder neu. Das ist eine Neustart-Schleife, und die
@@ -1420,40 +1492,74 @@ class AutoRestart extends Page
     public function testMessaging(): void
     {
         $auto = $this->toAuto();
+        $server = $this->getServer();
+        $messenger = app(Messenger::class);
         $via = $this->messagingVia();
+        $webhook = trim((string) ($auto['discord_webhook'] ?? ''));
 
-        if ($via === 'none') {
+        if ($via === 'none' && $webhook === '' && !$this->hasQuery()) {
             Notification::make()->title(trans('mar::messages.notify.no_messaging'))->warning()->send();
 
             return;
         }
 
-        if ($via === 'rcon' && trim((string) ($auto['rcon_password'] ?? '')) === '') {
-            Notification::make()->title(trans('mar::messages.notify.rcon_no_password'))->warning()->send();
+        $lines = [];
+        $failed = false;
 
-            return;
+        // Im Spiel: nicht nur anmelden, eine sichtbare Nachricht schicken.
+        // Eine erfolgreiche Anmeldung beweist noch nicht, dass Spieler die
+        // Warnung spaeter auch sehen.
+        if ($via !== 'none') {
+            if ($via === 'rcon' && trim((string) ($auto['rcon_password'] ?? '')) === '') {
+                $lines[] = trans('mar::messages.notify.rcon_no_password');
+                $failed = true;
+            } else {
+                $ok = $messenger->broadcast($server, $this->profile, $auto, trans('mar::messages.test_message'));
+                if ($via === 'rcon') {
+                    $c = app(RconClient::class)->configFor($server, $this->profile, $auto);
+                    $where = $c['host'] . ':' . $c['port'];
+                } else {
+                    $where = trans('mar::messages.settings.via_console');
+                }
+                $lines[] = $ok
+                    ? trans('mar::messages.notify.msg_ok', ['where' => $where]) . ' ' . trans('mar::messages.notify.msg_ok_body')
+                    : trans('mar::messages.notify.msg_failed', ['where' => $where]) . ' ' . trans('mar::messages.notify.msg_failed_body');
+                $failed = $failed || !$ok;
+            }
         }
 
-        // Nicht nur anmelden: eine sichtbare Nachricht schicken. Eine
-        // erfolgreiche Anmeldung beweist noch nicht, dass Spieler die Warnung
-        // spaeter auch sehen.
-        $ok = app(Messenger::class)->broadcast(
-            $this->getServer(), $this->profile, $auto, trans('mar::messages.test_message')
-        );
+        if ($webhook !== '') {
+            if (!Messenger::webhookValid($webhook)) {
+                $lines[] = trans('mar::messages.notify.discord_invalid');
+                $failed = true;
+            } else {
+                $ok = $messenger->discord($webhook, trans('mar::messages.test_message'));
+                $lines[] = trans($ok ? 'mar::messages.notify.discord_ok' : 'mar::messages.notify.discord_failed');
+                $failed = $failed || !$ok;
+            }
+        }
 
-        if ($via === 'rcon') {
-            $c = app(RconClient::class)->configFor($this->getServer(), $this->profile, $auto);
-            $where = $c['host'] . ':' . $c['port'];
-        } else {
-            $where = trans('mar::messages.settings.via_console');
+        // Die Spielerzahl ist das, woran "warten, bis der Server leer ist"
+        // haengt. Hier sieht man, ob die Abfrage aus dem Panel heraus
+        // ueberhaupt durchkommt.
+        if ($this->hasQuery() || $via === 'rcon') {
+            $players = $messenger->players($server, $this->profile, $auto);
+            if ($players === null) {
+                $target = $this->hasQuery() ? $messenger->queryTarget($server, $this->profile, $auto) : null;
+                $lines[] = trans('mar::messages.notify.players_unknown', [
+                    'where' => $target ? $target['host'] . ':' . $target['port'] : 'RCON',
+                ]);
+                $failed = true;
+            } else {
+                $lines[] = trans_choice('mar::messages.notify.players', $players, ['n' => $players]);
+            }
         }
 
         Notification::make()
-            ->title($ok
-                ? trans('mar::messages.notify.msg_ok', ['where' => $where])
-                : trans('mar::messages.notify.msg_failed', ['where' => $where]))
-            ->body($ok ? trans('mar::messages.notify.msg_ok_body') : trans('mar::messages.notify.msg_failed_body'))
-            ->{$ok ? 'success' : 'danger'}()
+            ->title($failed ? trans('mar::messages.notify.test_partial') : trans('mar::messages.notify.test_ok'))
+            ->body(new HtmlString(implode('<br>', array_map('e', $lines))))
+            ->{$failed ? 'warning' : 'success'}()
+            ->persistent()
             ->send();
     }
 

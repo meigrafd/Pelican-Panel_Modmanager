@@ -1,5 +1,34 @@
 # Änderungen
 
+## 0.6.8
+
+- **Hängendes Steam-Update wird selbst repariert.** SteamCMD merkt sich ein
+  gescheitertes Update in der appmanifest-Datei (StateFlags 6, in der
+  Konsole „state is 0x6 after update job“) und bricht danach bei jedem Start
+  sofort wieder ab. Die Kontrolle nach dem Neustart erkennt genau diesen
+  Zustand, legt die Datei beiseite (`…acf.mar-<Zeit>.bak`) und startet
+  **einmal** neu. SteamCMD prüft dann alles neu und lädt. Die Frist dafür ist
+  60 statt 30 Minuten. Hilft auch das nicht, schaltet sich die Funktion ab
+  wie bisher und nennt `content_log.txt`. Nur bei AUTO_UPDATE=1 und nur bei
+  StateFlags mit „Update nötig“; ein alter Build mit „vollständig
+  installiert“ wird nicht angefasst.
+- **Neustart erst, wenn der Server leer ist** (Einstellung „spätestens nach
+  … Minuten“, Vorgabe aus). Gefundenes Update → der Server läuft weiter,
+  jede Minute wird die Spielerzahl abgefragt, bei 0 sofort neu gestartet,
+  sonst zur Frist. Die Vorwarnung im Spiel kommt dann `warn_minutes` vor der
+  Frist, das Backup erst beim eigentlichen Neustart. Spielerzahl unbekannt
+  heißt wie immer: es ist jemand da.
+- **Spielerzahl über den Query-Port** (Steam-Serverabfrage A2S, mit
+  Challenge). Rückfall, wenn RCON keine Zahl liefert; nur für Profile mit
+  `query`-Eintrag. Enshrouded nimmt den Port aus der Egg-Variable
+  `QUERY_PORT`. Adresse und Port lassen sich auf der Seite überschreiben.
+- **Discord-Webhook.** Zwei Nachrichten je Neustart: Update gefunden (mit
+  :server, :reason, :when) und Server wieder da. Keine Erwähnungen, ein
+  `@everyone` in der Vorlage pingt niemanden. Gilt auch für den Neustart von
+  Hand.
+- **„Ansage testen“** prüft jetzt alles auf einmal: im Spiel, Discord und die
+  Spielerzahl, mit Adresse und Port, falls die Abfrage nicht durchkommt.
+
 ## 0.6.7
 
 - **Enshrouded als Spielprofil**, nur Spiel-Updates. Erkannt am Egg-Namen,

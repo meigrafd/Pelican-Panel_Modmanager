@@ -63,6 +63,9 @@ function resetAll(): void
     RegistryClient::$calls = 0;
     GameBuild::$result = ['outdated' => false, 'installed' => 100, 'latest' => 100];
     GameBuild::$installedBuild = 100;
+    GameBuild::$flags = 4;
+    GameBuild::$resets = 0;
+    GameBuild::$resetWorks = true;
     $GLOBALS['test_config'] = [];
     PackageResolver::reset();
     Installer::reset();
@@ -479,6 +482,218 @@ RegistryClient::$degraded = true;
 $s = store();
 $found = service($s)->detect(new Server(), $profileOf($s), $s->state['auto']);
 ok('Repository ohne Antwort: unknown, nicht update', ($found['versions']['Autor-ModA']['state'] ?? '') === 'unknown');
+
+echo "\n=== Steam haengt (state is 0x6): appmanifest zuruecksetzen\n";
+
+/** Kontrolle nach einem Spiel-Update, bei dem der Build sich nicht bewegt hat. */
+function stuckVerify(array $extra = []): MemoryStore
+{
+    return store([], array_merge(['phase' => 'verifying', 'reason' => 'Spiel', 'restarted_at' => time() - 600,
+        'verify_after' => time() - 60, 'verify_before' => time() + 600,
+        'stale_ids' => [], 'stale_before' => [], 'build_before' => 100, 'manifest_reset' => false,
+        'last_restart_at' => time() - 600], $extra),
+        [['at' => time() - 600, 'trigger' => 'auto', 'reason' => 'Spiel', 'changes' => [], 'outcome' => 'pending']]);
+}
+
+resetAll();
+$ens = new Server('1', 'Enshrouded');
+GameBuild::$result = ['outdated' => true, 'installed' => 100, 'latest' => 200];
+GameBuild::$flags = 6;
+$s = stuckVerify();
+$svc = service($s);
+$svc->tickServer($ens);
+ok('StateFlags 6: appmanifest wird zurueckgesetzt', GameBuild::$resets === 1);
+ok('  und EIN zweiter Neustart geht raus', PowerService::$sent === ['restart']);
+ok('  Funktion bleibt an, Phase verifying', ($s->state['auto']['enabled'] ?? false) === true
+    && ($s->state['run']['phase'] ?? '') === 'verifying' && ($s->state['run']['manifest_reset'] ?? false) === true);
+ok('  laengere Frist fuer den Download', ($s->state['run']['verify_before'] ?? 0) >= time() + 55 * 60);
+ok('  Hinweis nennt 0x6', str_contains($s->state['run']['note'] ?? '', '0x6'), $s->state['run']['note'] ?? '');
+
+// Kontrolle nach dem zweiten Neustart, waehrend Steam noch laedt: Datei fehlt.
+$s->state['run']['verify_after'] = time() - 60;
+GameBuild::$flags = null;
+PowerService::reset();
+$svc->tickServer($ens);
+ok('Download laeuft noch (keine appmanifest): wartet, kein Fehler', ($s->state['run']['phase'] ?? '') === 'verifying'
+    && PowerService::$sent === [] && ($s->state['auto']['enabled'] ?? false) === true);
+
+// Fertig: neuer Build, vollstaendig installiert.
+GameBuild::$flags = 4;
+GameBuild::$installedBuild = 200;
+GameBuild::$result = ['outdated' => false, 'installed' => 200, 'latest' => 200];
+$svc->tickServer($ens);
+ok('nach dem Neuladen aktuell: bestaetigt, idle', ($s->state['run']['phase'] ?? '') === 'idle'
+    && ($s->state['history'][0]['outcome'] ?? '') === 'verified', json_encode($s->state['run']));
+ok('  kein dritter Neustart', PowerService::$sent === []);
+ok('  nur einmal zurueckgesetzt', GameBuild::$resets === 1);
+
+resetAll();
+// Nach dem Zuruecksetzen kommt bis zur Frist nichts: dann aus, mit Hinweis.
+GameBuild::$result = ['outdated' => true, 'installed' => 100, 'latest' => 200];
+GameBuild::$flags = 6;
+$s = stuckVerify(['manifest_reset' => true, 'verify_before' => time() - 1]);
+service($s)->tickServer($ens);
+ok('zweiter Versuch scheitert auch: aus, kein weiterer Neustart', ($s->state['run']['phase'] ?? '') === 'failed'
+    && PowerService::$sent === [] && GameBuild::$resets === 0);
+ok('  Grund nennt content_log.txt', str_contains($s->state['run']['note'] ?? '', 'content_log.txt'), $s->state['run']['note'] ?? '');
+
+resetAll();
+// Build alt, aber Steam meldet "vollstaendig installiert" (4): kein Steam-Fehler,
+// meist AUTO_UPDATE aus. Zuruecksetzen wuerde nichts bringen.
+GameBuild::$result = ['outdated' => true, 'installed' => 100, 'latest' => 200];
+GameBuild::$flags = 4;
+$s = stuckVerify();
+service($s)->tickServer($ens);
+ok('StateFlags 4: kein Zuruecksetzen, sondern aus', GameBuild::$resets === 0 && ($s->state['run']['phase'] ?? '') === 'failed'
+    && PowerService::$sent === []);
+
+resetAll();
+// AUTO_UPDATE aus: SteamCMD laeuft beim Start gar nicht, also auch kein Reparaturversuch.
+GameBuild::$result = ['outdated' => true, 'installed' => 100, 'latest' => 200];
+GameBuild::$flags = 6;
+$s = stuckVerify();
+service($s)->tickServer(new Server('0', 'Enshrouded'));
+ok('AUTO_UPDATE=0: kein Zuruecksetzen, sondern aus', GameBuild::$resets === 0 && ($s->state['run']['phase'] ?? '') === 'failed');
+
+resetAll();
+// Umbenennen scheitert (Wings nicht erreichbar): aus, mit Steam-Hinweis.
+GameBuild::$result = ['outdated' => true, 'installed' => 100, 'latest' => 200];
+GameBuild::$flags = 6;
+GameBuild::$resetWorks = false;
+$s = stuckVerify();
+service($s)->tickServer($ens);
+ok('Zuruecksetzen scheitert: aus, kein Neustart', ($s->state['run']['phase'] ?? '') === 'failed' && PowerService::$sent === []);
+ok('  Grund nennt das gescheiterte Steam-Update', str_contains($s->state['run']['note'] ?? '', 'StateFlags 6'), $s->state['run']['note'] ?? '');
+
+echo "\n=== Warten, bis der Server leer ist\n";
+
+resetAll();
+GameBuild::$result = ['outdated' => true, 'installed' => 100, 'latest' => 200];
+Messenger::$players = 2;
+$s = store(['wait_empty_minutes' => 180, 'warn_minutes' => 5, 'discord_webhook' => 'https://discord.com/api/webhooks/1/x']);
+$svc = service($s);
+$svc->tickServer($ens);
+ok('Spieler online: Phase warning mit Wartemodus', ($s->state['run']['phase'] ?? '') === 'warning'
+    && ($s->state['run']['wait_empty'] ?? false) === true);
+ok('  Frist drei Stunden', abs(($s->state['run']['restart_at'] ?? 0) - (time() + 180 * 60)) < 5);
+ok('  kein Neustart', PowerService::$sent === []);
+ok('  Discord: Update gefunden, Neustart wenn leer', count(Messenger::$discord) === 1
+    && str_contains(Messenger::$discord[0], 'sobald niemand mehr spielt'), implode(' | ', Messenger::$discord));
+ok('  Platzhalter :server ersetzt', str_contains(Messenger::$discord[0] ?? '', 'Testserver'));
+ok('  im Spiel noch keine Warnung (kommt kurz vor der Frist)', Messenger::$said === []);
+ok('  gilt als gewarnt (Discord)', ($s->state['run']['warned'] ?? false) === true);
+
+$svc->tickServer($ens);
+ok('weiter Spieler da: kein Neustart', PowerService::$sent === []);
+ok('  Status nennt die Spielerzahl', str_contains($s->state['run']['note'] ?? '', '2 Spieler'), $s->state['run']['note'] ?? '');
+
+Messenger::$players = 0;
+$svc->tickServer($ens);
+ok('Server leer: Neustart sofort, lange vor der Frist', PowerService::$sent === ['restart']);
+ok('  Historie: 0 Spieler beim Neustart', ($s->state['history'][0]['players'] ?? -1) === 0);
+ok('  keine Ein-Minuten-Warnung an einen leeren Server', Messenger::$said === []);
+
+resetAll();
+// Spielerzahl unbekannt (Abfrage kommt nicht durch): wartet bis zur Frist.
+GameBuild::$result = ['outdated' => true, 'installed' => 100, 'latest' => 200];
+Messenger::$players = null;
+$s = store(['wait_empty_minutes' => 180, 'warn_minutes' => 5]);
+$svc = service($s);
+$svc->tickServer($ens);
+$svc->tickServer($ens);
+ok('Spielerzahl unbekannt: kein Neustart vor der Frist', PowerService::$sent === []);
+ok('  Status sagt "unbekannt"', str_contains($s->state['run']['note'] ?? '', 'unbekannt'));
+$s->state['run']['restart_at'] = time() + 3 * 60;
+$svc->tickServer($ens);
+ok('  Vorwarnung im Spiel ab warn_minutes vor der Frist', in_array('deadline', $s->state['run']['announced'] ?? [], true));
+$s->state['run']['restart_at'] = time() - 1;
+$svc->tickServer($ens);
+ok('  Frist erreicht: Neustart', PowerService::$sent === ['restart']);
+
+resetAll();
+// Niemand online, schon bei der Erkennung: sofort, Discord sagt "jetzt".
+GameBuild::$result = ['outdated' => true, 'installed' => 100, 'latest' => 200];
+Messenger::$players = 0;
+$s = store(['wait_empty_minutes' => 180, 'discord_webhook' => 'https://discord.com/api/webhooks/1/x']);
+$svc = service($s);
+$svc->tickServer($ens);
+ok('niemand online: kein Wartemodus', ($s->state['run']['wait_empty'] ?? true) === false);
+ok('  Discord sagt "jetzt"', str_contains(Messenger::$discord[0] ?? '', 'jetzt'), implode(' | ', Messenger::$discord));
+$svc->tickServer($ens);
+ok('  Neustart mit dem naechsten Tick', PowerService::$sent === ['restart']);
+
+resetAll();
+// Ohne Wartemodus bleibt alles wie bisher.
+GameBuild::$result = ['outdated' => true, 'installed' => 100, 'latest' => 200];
+Messenger::$players = 3;
+$s = store(['warn_minutes' => 5, 'discord_webhook' => 'https://discord.com/api/webhooks/1/x']);
+service($s)->tickServer(new Server());
+ok('Wartemodus aus: normale Vorwarnung', abs(($s->state['run']['restart_at'] ?? 0) - (time() + 300)) < 5
+    && ($s->state['run']['wait_empty'] ?? true) === false);
+ok('  Discord nennt die Minuten', str_contains(Messenger::$discord[0] ?? '', '5 Minuten'), implode(' | ', Messenger::$discord));
+
+echo "\n=== Discord\n";
+
+resetAll();
+// Erfolgreiche Kontrolle: "wieder da" nach Discord.
+GameBuild::$result = ['outdated' => false, 'installed' => 200, 'latest' => 200];
+GameBuild::$installedBuild = 200;
+$s = stuckVerify(['discord_webhook' => 'x']);
+$s->state['auto']['discord_webhook'] = 'https://discord.com/api/webhooks/1/x';
+service($s)->tickServer($ens);
+ok('nach erfolgreicher Kontrolle: Discord "wieder da"', ($s->state['run']['phase'] ?? '') === 'idle'
+    && str_contains(Messenger::$discord[0] ?? '', 'wieder da'), implode(' | ', Messenger::$discord));
+
+resetAll();
+// Ohne Webhook: nichts nach Discord.
+GameBuild::$result = ['outdated' => true, 'installed' => 100, 'latest' => 200];
+Messenger::$players = 2;
+$s = store(['warn_minutes' => 5]);
+service($s)->tickServer(new Server());
+ok('ohne Webhook: nichts nach Discord', Messenger::$discord === []);
+
+resetAll();
+// Discord kaputt, kein Ansageweg im Spiel: Neustart laeuft trotzdem.
+GameBuild::$result = ['outdated' => true, 'installed' => 100, 'latest' => 200];
+Messenger::$players = 0;
+Messenger::$discordWorking = false;
+Messenger::$working = false;
+$s = store(['discord_webhook' => 'https://discord.com/api/webhooks/1/x']);
+$svc = service($s);
+$svc->tickServer($ens);
+$svc->tickServer($ens);
+ok('Discord nicht erreichbar: Neustart trotzdem', PowerService::$sent === ['restart']);
+ok('  Historie: nicht gewarnt', ($s->state['history'][0]['warned'] ?? true) === false);
+
+resetAll();
+// Leere Vorlage heisst: diese Nachricht nicht senden.
+GameBuild::$result = ['outdated' => true, 'installed' => 100, 'latest' => 200];
+$s = store(['discord_webhook' => 'https://discord.com/api/webhooks/1/x', 'discord_msg_warn' => '']);
+service($s)->tickServer(new Server());
+ok('leere Vorlage: nichts gesendet', Messenger::$discord === []);
+
+resetAll();
+// Neustart von Hand: auch Discord bekommt Bescheid.
+$s = store(['enabled' => false, 'warn_minutes' => 10, 'discord_webhook' => 'https://discord.com/api/webhooks/1/x']);
+Messenger::$players = 1;
+service($s)->scheduleRestart(new Server(), 'tester');
+ok('Neustart von Hand: Discord nennt Wartungs-Update und 10 Minuten',
+    str_contains(Messenger::$discord[0] ?? '', 'Wartungs-Update') && str_contains(Messenger::$discord[0] ?? '', '10 Minuten'),
+    implode(' | ', Messenger::$discord));
+
+echo "\n=== Speicher: neue Einstellungen\n";
+
+$read2 = function (array $auto): array {
+    $store = new MemoryStore([], []);
+    $m = new ReflectionMethod(StateStore::class, 'auto');
+    $m->setAccessible(true);
+
+    return $m->invoke($store, $auto);
+};
+ok('Frist wird auf 720 Minuten begrenzt', $read2(['wait_empty_minutes' => 99999])['wait_empty_minutes'] === 720);
+ok('Frist darf nicht negativ sein', $read2(['wait_empty_minutes' => -5])['wait_empty_minutes'] === 0);
+ok('Query-Port wird begrenzt', $read2(['query_port' => 70000])['query_port'] === 65535);
+ok('Vorgabe Wartemodus: aus', StateStore::AUTO_DEFAULTS['wait_empty_minutes'] === 0);
 
 echo "\n";
 printf("ERGEBNIS: %d bestanden, %d fehlgeschlagen\n", $passed, $failed);

@@ -103,6 +103,7 @@ class GameProfile
             'sources' => [],
             'page_url' => [],
             'messaging' => ['via' => 'none'],
+            'query' => null,
             'notes' => [],
         ];
     }

@@ -243,6 +243,8 @@ namespace Meigrafd\ModAutoRestart\Services {
         public static function reset(): void
         {
             self::$said = [];
+            self::$discord = [];
+            self::$discordWorking = true;
         }
 
         public function broadcast($server, array $profile, array $auto, string $text): bool
@@ -265,6 +267,21 @@ namespace Meigrafd\ModAutoRestart\Services {
             return self::$players;
         }
 
+        /** @var array<int,string> was nach Discord ging */
+        public static array $discord = [];
+
+        public static bool $discordWorking = true;
+
+        public function discord(string $webhook, string $text): bool
+        {
+            if (!self::$discordWorking) {
+                return false;
+            }
+            self::$discord[] = $text;
+
+            return true;
+        }
+
         public function available(array $profile, array $auto): bool
         {
             return self::$working;
@@ -285,6 +302,37 @@ namespace Meigrafd\ModAutoRestart\Services {
         public function installed($server, ?string $appId): ?int
         {
             return self::$installedBuild;
+        }
+
+        public const FLAG_UPDATE_REQUIRED = 2;
+
+        public const FLAG_FULLY_INSTALLED = 4;
+
+        /** StateFlags der appmanifest; null heisst: Datei fehlt. */
+        public static ?int $flags = 4;
+
+        /** Wie oft die appmanifest zurueckgesetzt wurde. */
+        public static int $resets = 0;
+
+        public static bool $resetWorks = true;
+
+        public function manifest($server, ?string $appId): ?array
+        {
+            if (self::$flags === null || self::$installedBuild === null) {
+                return null;
+            }
+
+            return ['build' => self::$installedBuild, 'flags' => self::$flags];
+        }
+
+        public function resetManifest($server, ?string $appId): bool
+        {
+            if (!self::$resetWorks) {
+                return false;
+            }
+            self::$resets++;
+
+            return true;
         }
     }
 

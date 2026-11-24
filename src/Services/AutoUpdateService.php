@@ -46,10 +46,22 @@ use Illuminate\Support\Facades\Log;
  * Was am jeweiligen Spiel anders ist, steht im Spielprofil. Diese Klasse kennt
  * kein Spiel beim Namen.
  *
+ * **Warten, bis der Server leer ist.** Optional (`wait_empty_minutes`). Dann
+ * startet der Server erst neu, wenn niemand mehr spielt, spaetestens nach der
+ * Frist. Wer schon drin ist, merkt vom Update nichts; nur wer neu verbinden
+ * will, kommt bis dahin nicht rein - und genau den erreicht die
+ * Discord-Nachricht.
+ *
+ * **Haengendes appmanifest.** SteamCMD merkt sich ein gescheitertes Update in
+ * der appmanifest-Datei (StateFlags 6) und bricht danach bei jedem Start
+ * sofort wieder ab. Diesen einen Fall repariert die Kontrolle selbst: Datei
+ * beiseitelegen, EIN weiterer Neustart. Hilft das nicht, gilt die Regel oben.
+ *
  * Phasen, getrieben vom Panel-Scheduler, ein Tick pro Minute:
  *
  *   idle      nichts zu tun; prueft alle `check_minutes`
  *   warning   Neustart geplant; Spieler werden informiert; Backup laeuft
+ *             (oder: wartet auf einen leeren Server)
  *   verifying neu gestartet, wartet auf Rueckkehr zur Kontrolle
  *   failed    Kontrolle fehlgeschlagen; Funktion ist aus und braucht einen Menschen
  */
@@ -66,6 +78,12 @@ class AutoUpdateService
 
     /** Aufgeben und als Fehlschlag werten. */
     private const VERIFY_DEADLINE_MINUTES = 30;
+
+    /**
+     * Frist nach dem Zuruecksetzen des appmanifests. Laenger, weil SteamCMD
+     * dann jede Datei neu prueft und das Update komplett laedt.
+     */
+    private const RESET_DEADLINE_MINUTES = 60;
 
     /** Laengste Wartezeit des Neustart-Knopfs auf sein Backup. */
     private const MANUAL_BACKUP_WAIT_SECONDS = 12;
@@ -217,10 +235,16 @@ class AutoUpdateService
         $players = $this->messenger->players($server, $profile, $auto);
         // null heisst "unbekannt", und unbekannt wird wie "es ist jemand da"
         // behandelt.
-        $warnMinutes = $players === 0 ? 0 : $auto['warn_minutes'];
+        $waitEmpty = $players !== 0 && (int) $auto['wait_empty_minutes'] > 0;
+        $warnMinutes = match (true) {
+            $players === 0 => 0,
+            $waitEmpty => (int) $auto['wait_empty_minutes'],
+            default => (int) $auto['warn_minutes'],
+        };
 
         $run = [
             'phase' => 'warning',
+            'wait_empty' => $waitEmpty,
             'reason' => $found['reason'],
             'detail' => $found['detail'],
             'restart_at' => $now + $warnMinutes * 60,
@@ -238,16 +262,25 @@ class AutoUpdateService
         ];
 
         // Welt schreiben lassen, bevor das Backup startet - sonst haelt der
-        // Schnappschuss, was gerade im Speicher lag.
-        if ($auto['backup']) {
+        // Schnappschuss, was gerade im Speicher lag. Beim Warten auf einen
+        // leeren Server erst, wenn wirklich neu gestartet wird: ein Backup,
+        // das drei Stunden vor dem Neustart entstand, sichert drei Stunden zu
+        // wenig.
+        if ($auto['backup'] && !$waitEmpty) {
             $this->messenger->save($server, $profile, $auto);
             $run['backup_id'] = $this->startBackup($server, 'Auto-Update ' . $found['reason']);
         }
 
-        if ($warnMinutes > 0) {
+        // Im Spiel wird beim Warten erst kurz vor der Frist gewarnt (siehe
+        // duringWarning) - "Neustart in 180 Minuten" haelt niemand im Kopf.
+        if ($warnMinutes > 0 && !$waitEmpty) {
             $run['warned'] = $this->announce($server, $profile, $auto, $auto['msg_warn'], $found['reason'], $warnMinutes, $warnMinutes * 60);
             $run['announced'][] = $warnMinutes;
         }
+
+        $told = $this->tellDiscord($server, $auto, (string) $auto['discord_msg_warn'], $found['reason'],
+            $this->when($warnMinutes, $now + $warnMinutes * 60, $waitEmpty));
+        $run['warned'] = $run['warned'] || $told;
 
         $this->save($server, $state, $run);
     }
@@ -263,11 +296,57 @@ class AutoUpdateService
         $now = now()->timestamp;
         $left = (int) $run['restart_at'] - $now;
 
+        if (!empty($run['wait_empty']) && empty($run['go'])) {
+            if ($left > 30) {
+                $players = $this->messenger->players($server, $profile, $auto);
+                if ($players === 0) {
+                    // Niemand mehr da: jetzt, statt bis zur Frist zu warten.
+                    $run['go'] = 'empty';
+                    $run['players_at_start'] = 0;
+                    $run['restart_at'] = $now;
+                    $run['note'] = 'Der Server ist leer, Neustart jetzt.';
+                    $left = 0;
+                } else {
+                    // Die normale Vorwarnung, gerechnet ab der Frist.
+                    $warn = (int) $auto['warn_minutes'];
+                    if ($warn > 0 && $left <= $warn * 60 + 30 && !in_array('deadline', $run['announced'] ?? [], true)) {
+                        $minutes = max(1, (int) ceil($left / 60));
+                        $warned = $this->announce($server, $profile, $auto, $auto['msg_warn'], (string) ($run['reason'] ?? ''), $minutes, $minutes * 60);
+                        $run['warned'] = ($run['warned'] ?? false) || $warned;
+                        $run['announced'][] = 'deadline';
+                    }
+                    $run['players_at_start'] = $players;
+                    $run['note'] = ($players === null ? 'Spielerzahl unbekannt' : $players . ' Spieler online')
+                        . '. Neustart, sobald der Server leer ist, spaetestens ' . $this->clock((int) $run['restart_at']) . '.';
+                    $this->save($server, $state, $run);
+                }
+            } else {
+                $run['go'] = 'deadline';
+            }
+
+            // Jetzt erst sichern, siehe whenIdle.
+            if (!empty($run['go']) && $auto['backup'] && empty($run['backup_requested'])) {
+                $run['backup_requested'] = true;
+                $this->messenger->save($server, $profile, $auto);
+                $run['backup_id'] = $this->startBackup($server, 'Auto-Update ' . ($run['reason'] ?? ''));
+                $run['started_at'] = $now;
+                if ($run['backup_id'] !== null) {
+                    $run['restart_at'] = $now + 60;
+                    $this->save($server, $state, $run);
+
+                    return;
+                }
+            }
+        }
+
+        $empty = ($run['go'] ?? '') === 'empty';
+
         if ($left > 30) {
             // Eine zweite Warnung kurz vor Schluss. Wer nach der ersten Ansage
-            // dazugekommen ist, haette sonst gar keine bekommen.
+            // dazugekommen ist, haette sonst gar keine bekommen. Auf einem
+            // leeren Server gibt es niemanden zu warnen.
             $minutes = (int) ceil($left / 60);
-            if ($minutes <= 1 && !in_array(1, $run['announced'] ?? [], true)) {
+            if (!$empty && $minutes <= 1 && !in_array(1, $run['announced'] ?? [], true)) {
                 $warned = $this->announce($server, $profile, $auto, $auto['msg_final'], (string) ($run['reason'] ?? ''), 1, 60);
                 $run['warned'] = ($run['warned'] ?? false) || $warned;
                 $run['announced'][] = 1;
@@ -360,7 +439,9 @@ class AutoUpdateService
             }
         }
 
-        $this->countdown($server, $profile, $auto, (string) ($run['reason'] ?? ''));
+        if (!$empty) {
+            $this->countdown($server, $profile, $auto, (string) ($run['reason'] ?? ''));
+        }
 
         // Wird vor dem Neustart geschrieben, nicht nach der Kontrolle. Faellt
         // das Panel dazwischen aus, sieht der Operator immerhin, dass ein
@@ -396,6 +477,7 @@ class AutoUpdateService
             'stale_ids' => $run['stale_ids'] ?? [],
             'stale_before' => $run['stale_before'] ?? [],
             'build_before' => $run['build_before'] ?? null,
+            'manifest_reset' => false,
             'note' => $manual
                 ? 'Neu gestartet von Hand. Wartet auf die Rueckkehr des Servers.'
                 : 'Neu gestartet fuer ein ' . $run['reason'] . '-Update. Wird kontrolliert.',
@@ -417,6 +499,33 @@ class AutoUpdateService
 
         if ($now < (int) $run['verify_after']) {
             return;
+        }
+
+        $appId = $profile['app_id'] ?? null;
+
+        // Nach dem Zuruecksetzen laedt SteamCMD das Spiel neu. Solange die
+        // neue appmanifest nicht "vollstaendig installiert" meldet, ist jeder
+        // Vergleich verfrueht - waehrend des Downloads steht dort womoeglich
+        // noch eine alte oder gar keine Build-Id.
+        if (!empty($run['manifest_reset'])) {
+            $manifest = $this->build->manifest($server, $appId);
+            $flags = $manifest['flags'] ?? null;
+            $done = $manifest !== null && $manifest['build'] > 0 && $flags !== null
+                && ($flags & GameBuild::FLAG_FULLY_INSTALLED) !== 0
+                && ($flags & GameBuild::FLAG_UPDATE_REQUIRED) === 0;
+
+            if (!$done) {
+                if ($now < (int) $run['verify_before']) {
+                    return;
+                }
+
+                $this->stop($server, $state, 'Auch nach dem Zuruecksetzen der appmanifest-Datei hat Steam das Update nicht'
+                    . ' geladen (' . ($manifest === null ? 'keine appmanifest' : 'StateFlags ' . ($flags ?? '?')) . ').'
+                    . ' Den Grund nennt .steam/steam/logs/content_log.txt im Serverordner, haeufig ist es zu wenig'
+                    . ' Speicherplatz. Auto-Neustart ist aus.');
+
+                return;
+            }
         }
 
         // Ob der Server wieder oben ist, wird an den Dateien abgelesen, nicht am
@@ -451,20 +560,54 @@ class AutoUpdateService
             && $found['build'] !== null
             && $found['build'] === ($run['build_before'] ?? null);
 
+        $manifest = $gameStuck ? $this->build->manifest($server, $appId) : null;
+        $steamFailed = $manifest !== null && $manifest['flags'] !== null
+            && ($manifest['flags'] & GameBuild::FLAG_UPDATE_REQUIRED) !== 0;
+
+        // Der eine Fall, in dem ein zweiter Neustart doch hilft: SteamCMD hat
+        // das Update erkannt und ist gescheitert ("state is 0x6"). Mit der
+        // Datei, die sich das merkt, scheitert es bei jedem Start wieder;
+        // ohne sie prueft es neu und laedt. Nur einmal - und nur, wenn
+        // AUTO_UPDATE an ist, sonst laeuft SteamCMD gar nicht.
+        if ($gameStuck && !$stillStale && $steamFailed && empty($run['manifest_reset'])
+            && $this->autoUpdateEnabled($server) && $this->build->resetManifest($server, $appId)) {
+            Log::warning('mod-auto-restart: appmanifest zurueckgesetzt, zweiter Neustart', [
+                'server_id' => $server->id,
+                'app_id' => $appId,
+                'flags' => $manifest['flags'],
+            ]);
+
+            // restarted_at bleibt: ueber diesen Zeitpunkt findet die Kontrolle
+            // ihren Historieneintrag wieder.
+            $run['manifest_reset'] = true;
+            $run['verify_after'] = $now + self::VERIFY_GRACE_MINUTES * 60;
+            $run['verify_before'] = $now + self::RESET_DEADLINE_MINUTES * 60;
+            $run['last_restart_at'] = $now;
+            $run['note'] = 'Steam hat das Update beim Start nicht geladen (StateFlags ' . $manifest['flags']
+                . ', in der Konsole "state is 0x' . dechex((int) $manifest['flags']) . '"). Die appmanifest-Datei'
+                . ' wurde beiseitegelegt, der Server startet ein zweites Mal und laedt neu.';
+            $this->save($server, $state, $run);
+            $this->power->setServer($server)->send('restart');
+
+            return;
+        }
+
         if ($stillStale || $gameStuck) {
-            // Nichts hat sich bewegt, ein zweiter Neustart wuerde es auch nicht.
+            // Nichts hat sich bewegt, ein weiterer Neustart wuerde es auch nicht.
             // Meistens: AUTO_UPDATE aus, oder das Paket wurde zurueckgezogen.
-            $this->stop(
-                $server,
-                $state,
-                'Neu gestartet, aber ' . ($gameStuck ? 'der Spiel-Build' : implode(', ', $stillStale))
-                . ' ist immer noch nicht aktuell. Auto-Neustart ist aus, damit der Server nicht erneut neu startet.'
-            );
+            $why = 'Neu gestartet, aber ' . ($gameStuck ? 'der Spiel-Build' : implode(', ', $stillStale))
+                . ' ist immer noch nicht aktuell.';
+            if ($gameStuck && $steamFailed) {
+                $why .= ' Steam meldet ein gescheitertes Update (StateFlags ' . $manifest['flags'] . ').'
+                    . ' Den Grund nennt .steam/steam/logs/content_log.txt im Serverordner.';
+            }
+            $this->stop($server, $state, $why . ' Auto-Neustart ist aus, damit der Server nicht erneut neu startet.');
 
             return;
         }
 
         $this->announce($server, $profile, $auto, $auto['msg_back'], (string) ($run['reason'] ?? ''), 0, 0);
+        $this->tellDiscord($server, $auto, (string) $auto['discord_msg_back'], (string) ($run['reason'] ?? ''), '');
 
         $state['history'] = $this->settleHistory($server, $profile, $state, $run, 'verified', '', $found);
 
@@ -686,6 +829,10 @@ class AutoUpdateService
             $run['warned'] = $this->announce($server, $profile, $auto, $auto['msg_warn'], self::MANUAL_REASON, $warnMinutes, $warnMinutes * 60);
             $run['announced'][] = $warnMinutes;
         }
+
+        $told = $this->tellDiscord($server, $auto, (string) $auto['discord_msg_warn'], self::MANUAL_REASON,
+            $this->when($warnMinutes, $now + $warnMinutes * 60, false));
+        $run['warned'] = $run['warned'] || $told;
 
         $this->save($server, $state, $run);
 
@@ -1010,6 +1157,55 @@ class AutoUpdateService
             }
             sleep(1);
         }
+    }
+
+    /**
+     * Nachricht in den Discord-Kanal, wenn einer eingetragen ist.
+     *
+     * Bewusst nur zwei Nachrichten je Neustart (gefunden, wieder da): die
+     * Vorwarnung eine Minute vorher und der Countdown sind fuer die, die im
+     * Spiel sind, und im Kanal nur Rauschen.
+     */
+    private function tellDiscord(Server $server, array $auto, string $template, string $reason, string $when): bool
+    {
+        $webhook = trim((string) ($auto['discord_webhook'] ?? ''));
+        $text = trim(strtr(trim($template), [
+            ':server' => (string) ($server->name ?? ''),
+            ':reason' => $reason,
+            ':when' => $when,
+        ]));
+
+        return $webhook !== '' && $text !== '' && $this->messenger->discord($webhook, $text);
+    }
+
+    /** Text fuer :when in der Discord-Nachricht. */
+    private function when(int $minutes, int $at, bool $waitEmpty): string
+    {
+        if ($minutes <= 0) {
+            return 'jetzt';
+        }
+
+        return $waitEmpty
+            ? 'sobald niemand mehr spielt, spaetestens um ' . $this->clock($at)
+            : 'um ' . $this->clock($at) . ' (in ' . $minutes . ' Minuten)';
+    }
+
+    /**
+     * Uhrzeit in der Zeitzone des Panels. Steht die auf UTC - Pelicans
+     * Vorgabe -, sagt die Zeit das dazu, statt deutschen Spielern eine Stunde
+     * zu frueh "18:30" zu versprechen.
+     */
+    private function clock(int $timestamp): string
+    {
+        $zone = (string) (config('app.timezone') ?: 'UTC');
+        try {
+            $time = (new \DateTimeImmutable('@' . $timestamp))->setTimezone(new \DateTimeZone($zone));
+        } catch (\Throwable $e) {
+            $time = new \DateTimeImmutable('@' . $timestamp);
+            $zone = 'UTC';
+        }
+
+        return $time->format('H:i') . (in_array(strtoupper($zone), ['UTC', 'ETC/UTC', 'GMT'], true) ? ' UTC' : ' Uhr');
     }
 
     // ------------------------------------------------------------ einspielen

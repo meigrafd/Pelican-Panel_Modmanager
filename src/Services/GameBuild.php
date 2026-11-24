@@ -33,8 +33,31 @@ class GameBuild
 
     public function __construct(private DaemonFileRepository $files) {}
 
+    /** Steams "Update noetig"-Bit in StateFlags. Gesetzt heisst: das letzte Update ist nicht durchgelaufen. */
+    public const FLAG_UPDATE_REQUIRED = 2;
+
+    /** Steams "vollstaendig installiert"-Bit in StateFlags. */
+    public const FLAG_FULLY_INSTALLED = 4;
+
     /** Build-Id auf der Platte, oder null wenn das Manifest fehlt oder unlesbar ist. */
     public function installed(Server $server, ?string $appId): ?int
+    {
+        return $this->manifest($server, $appId)['build'] ?? null;
+    }
+
+    /**
+     * Build-Id und Zustand aus dem appmanifest, oder null.
+     *
+     * StateFlags ist Steams eigene Zustandsangabe. Fuer dieses Plugin zaehlen
+     * zwei Bits: 4 (vollstaendig installiert) und 2 (Update noetig). Steht
+     * nach einem Start 6 drin, hat SteamCMD das Update erkannt und nicht
+     * geschafft - das ist genau die Zeile "state is 0x6 after update job" in
+     * der Konsole. SteamCMD liest diesen Zustand beim naechsten Start wieder
+     * und bricht erneut ab, weshalb ein weiterer Neustart allein nie hilft.
+     *
+     * @return array{build:int,flags:?int}|null
+     */
+    public function manifest(Server $server, ?string $appId): ?array
     {
         if ($appId === null || !ctype_digit($appId)) {
             return null;
@@ -49,11 +72,43 @@ class GameBuild
 
         // Das acf-Format ist Valves eigener Schluessel-Wert-Text:
         // "buildid" "24574884"
-        if (preg_match('/"buildid"\s+"(\d+)"/', $raw, $m)) {
-            return (int) $m[1];
+        if (!preg_match('/"buildid"\s+"(\d+)"/', $raw, $m)) {
+            return null;
         }
 
-        return null;
+        return [
+            'build' => (int) $m[1],
+            'flags' => preg_match('/"StateFlags"\s+"(\d+)"/i', $raw, $f) ? (int) $f[1] : null,
+        ];
+    }
+
+    /**
+     * Haengende appmanifest-Datei beiseitelegen, damit SteamCMD beim naechsten
+     * Start neu prueft und laedt.
+     *
+     * Umbenannt, nicht geloescht: wer nachsehen will, was drinstand, findet
+     * sie daneben. Der Zeitstempel im Namen verhindert, dass ein zweiter
+     * Versuch an einer schon vorhandenen Sicherung scheitert. Die Welt liegt
+     * woanders und wird nicht angefasst.
+     */
+    public function resetManifest(Server $server, ?string $appId): bool
+    {
+        if ($appId === null || !ctype_digit($appId)) {
+            return false;
+        }
+
+        $file = "steamapps/appmanifest_{$appId}.acf";
+
+        try {
+            $this->files->setServer($server)->renameFiles(null, [[
+                'from' => $file,
+                'to' => $file . '.mar-' . date('Ymd-His') . '.bak',
+            ]]);
+
+            return true;
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 
     /**

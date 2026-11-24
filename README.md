@@ -53,11 +53,13 @@ Dazu kommt das zweite Problem: Wer Mods lokal mit Gale pflegt und den Server von
 | V Rising | 1829350 | Thunderstore | — |
 | Core Keeper | 1963720 | Thunderstore | — |
 | Sunkenland | 2667530 | Thunderstore, Hexium | — |
-| Enshrouded | 2278520 | — (nur Spiel-Updates) | — |
+| Enshrouded | 2278520 | — (nur Spiel-Updates) | — (Spielerzahl über den Query-Port) |
 | Project Zomboid | 380870 | — (nur Spiel-Updates) | Panel-Konsole |
 | Anderes Spiel | selbst eintragen | Thunderstore | — |
 
 Alles Spielspezifische steht als Daten in `config/mod-auto-restart.php`. Ein neues Spiel ist ein Eintrag dort, kein Code. Steam-App-ID und Mod-Ordner lassen sich außerdem pro Server auf der Seite überschreiben.
+
+Für jedes Spiel kann zusätzlich ein **Discord-Webhook** eingetragen werden: eine Nachricht, wenn ein Update gefunden wurde, und eine, wenn der Server wieder da ist. Und der Neustart kann **warten, bis der Server leer ist**, spätestens bis zu einer Frist. Das braucht eine Spielerzahl, also RCON oder ein Profil mit Query-Port.
 
 Ist [pz-mod-manager](https://github.com/WildBrianNL/pz-mod-manager) installiert, überlässt dieses Plugin ihm Project Zomboid: keine Seite, kein Tick. Panelweite Einstellungen (ignorierte Eggs, Probelauf, Cache) stehen unter Admin → Plugins → Zahnrad.
 

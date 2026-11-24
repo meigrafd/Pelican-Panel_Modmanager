@@ -58,6 +58,12 @@ return [
     |
     |   messaging    Wie Spieler gewarnt werden. Siehe unten.
     |
+    |   query        Spielerzahl ueber die Steam-Serverabfrage (A2S), wenn
+    |                RCON keine liefert. `port_variable` ist die Egg-Variable
+    |                mit dem Query-Port, `port_offset` der Rueckfall relativ
+    |                zum Spielport. Nur eintragen, wenn das Spiel auf A2S
+    |                antwortet - sonst bleibt die Zahl einfach unbekannt.
+    |
     */
 
     'profiles' => [
@@ -199,7 +205,12 @@ return [
         |             API-Schluessel - nichts, was ein Server unbeaufsichtigt
         |             abholen kann. Kein BepInEx: das Spiel ist kein Unity.
         |   Ansage    Der Server hat kein RCON und nimmt keine Befehle auf
-        |             stdin. Der Neustart laeuft also ohne Vorwarnung.
+        |             stdin. Im Spiel gibt es also keine Vorwarnung; was
+        |             bleibt, ist Discord (Webhook auf der Seite).
+        |   Spieler   Ueber die Steam-Serverabfrage (A2S) auf dem Query-Port.
+        |             Das Egg schreibt ihn als QUERY_PORT in die
+        |             enshrouded_server.json. Damit kann das Plugin warten, bis
+        |             niemand mehr spielt.
         |   Spiel     Steam-App 2278520, nur als Windows-Depot; das Egg laesst
         |             sie unter Proton laufen. Das appmanifest liegt trotzdem
         |             unter steamapps/, die Build-Pruefung funktioniert wie
@@ -214,6 +225,7 @@ return [
             'sources' => [],
             'page_url' => [],
             'messaging' => ['via' => 'none'],
+            'query' => ['port_variable' => 'QUERY_PORT', 'port_offset' => 0],
         ],
 
         /*

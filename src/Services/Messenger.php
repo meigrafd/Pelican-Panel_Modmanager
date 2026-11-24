@@ -3,6 +3,7 @@
 namespace Meigrafd\ModAutoRestart\Services;
 
 use App\Models\Server;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -15,7 +16,12 @@ use Illuminate\Support\Facades\Log;
  *            Port und kein Passwort, setzt aber voraus, dass das Spiel einen
  *            Broadcast-Befehl auf stdin hat. Valheim hat keinen, Project
  *            Zomboid hat servermsg.
- *   none     Keine Vorwarnung moeglich. Der Neustart laeuft trotzdem.
+ *   none     Keine Vorwarnung im Spiel moeglich. Der Neustart laeuft trotzdem.
+ *
+ * Unabhaengig davon Discord: ein Webhook, den der Operator auf der Seite
+ * eintraegt. Der erreicht nicht die Spieler im Spiel, wohl aber die, die
+ * gerade nicht reinkommen, weil ihr Client schon das Update hat - und genau
+ * die fragen sonst "ist der Server kaputt?".
  *
  * Nichts hier ist je toedlich. Faellt der Ansageweg aus - und bei 'rcon' faellt
  * er aus, sobald ein Spiel-Update das Mod zerschiesst -, gehen die Warnungen
@@ -24,7 +30,10 @@ use Illuminate\Support\Facades\Log;
  */
 class Messenger
 {
-    public function __construct(private RconClient $rcon) {}
+    public function __construct(
+        private RconClient $rcon,
+        private A2sQuery $query = new A2sQuery(),
+    ) {}
 
     /**
      * Nachricht an alle. Gibt zurueck, ob sie zugestellt werden konnte.
@@ -86,18 +95,123 @@ class Messenger
     public function players(Server $server, array $profile, array $auto): ?int
     {
         $messaging = (array) ($profile['messaging'] ?? []);
-        if (($messaging['via'] ?? 'none') !== 'rcon' || trim((string) ($messaging['stats'] ?? '')) === '') {
-            return null;
+        $count = null;
+
+        if (($messaging['via'] ?? 'none') === 'rcon' && trim((string) ($messaging['stats'] ?? '')) !== '') {
+            $count = $this->rcon->players(
+                $this->rcon->configFor($server, $profile, $auto),
+                (string) $messaging['stats']
+            );
         }
 
-        return $this->rcon->players(
-            $this->rcon->configFor($server, $profile, $auto),
-            (string) $messaging['stats']
-        );
+        // Rueckfall: die Steam-Serverabfrage. Nur fuer Profile, die sie
+        // ausdruecklich anbieten - ein Spiel, das auf A2S nicht oder falsch
+        // antwortet, soll keine erfundene Null liefern.
+        if ($count === null && is_array($profile['query'] ?? null)) {
+            $target = $this->queryTarget($server, $profile, $auto);
+            $count = $this->query->players($target['host'], $target['port']);
+        }
+
+        return $count;
+    }
+
+    /**
+     * Wohin die Serverabfrage geht.
+     *
+     * Adresse: was der Operator eingetragen hat, sonst die IP der Allocation.
+     * 0.0.0.0 ist keine Adresse, an die man schicken kann - das heisst "alle
+     * Schnittstellen", und auf dem Wings-Rechner erreicht man den Server dann
+     * ueber 127.0.0.1.
+     *
+     * Port: Eingabe, sonst die Egg-Variable aus dem Profil (Enshrouded:
+     * QUERY_PORT), sonst Spielport plus Versatz.
+     *
+     * @param  array<string,mixed>  $profile
+     * @param  array<string,mixed>  $auto
+     * @return array{host:string,port:int}
+     */
+    public function queryTarget(Server $server, array $profile, array $auto): array
+    {
+        $query = (array) ($profile['query'] ?? []);
+
+        $host = trim((string) ($auto['query_host'] ?? ''));
+        if ($host === '') {
+            $host = trim((string) ($server->allocation->ip ?? ''));
+        }
+        if ($host === '' || $host === '0.0.0.0' || $host === '::') {
+            $host = '127.0.0.1';
+        }
+
+        $port = (int) ($auto['query_port'] ?? 0);
+        if ($port <= 0) {
+            $variable = trim((string) ($query['port_variable'] ?? ''));
+            foreach ($variable !== '' ? (array) ($server->variables ?? []) : [] as $row) {
+                if (($row->env_variable ?? '') === $variable) {
+                    $value = trim((string) ($row->server_value ?? $row->default_value ?? ''));
+                    if (ctype_digit($value)) {
+                        $port = (int) $value;
+                    }
+                    break;
+                }
+            }
+        }
+        if ($port <= 0) {
+            $port = (int) ($server->allocation->port ?? 0) + (int) ($query['port_offset'] ?? 0);
+        }
+
+        return ['host' => $host, 'port' => $port];
+    }
+
+    // ---------------------------------------------------------------- discord
+
+    /** Sieht das wie ein Discord-Webhook aus? Alles andere wird nicht angefragt. */
+    public static function webhookValid(string $url): bool
+    {
+        return (bool) preg_match('#^https://(?:ptb\.|canary\.)?discord(?:app)?\.com/api/webhooks/\d+/[\w-]+$#', trim($url));
+    }
+
+    /**
+     * Nachricht an einen Discord-Kanal. Nie toedlich, wie alles hier.
+     *
+     * `allowed_mentions` leer: ein "@everyone" in einer Vorlage soll nicht
+     * nachts den ganzen Server anpingen, nur weil ein Mod-Autor etwas
+     * hochgeladen hat.
+     */
+    public function discord(string $webhook, string $text): bool
+    {
+        $webhook = trim($webhook);
+        $text = trim($text);
+        if ($text === '' || !self::webhookValid($webhook)) {
+            return false;
+        }
+
+        try {
+            return Http::timeout(5)
+                ->asJson()
+                ->post($webhook, [
+                    'content' => mb_substr($text, 0, 1900),
+                    'allowed_mentions' => ['parse' => []],
+                ])
+                ->successful();
+        } catch (\Throwable $e) {
+            Log::info('mod-auto-restart: Discord-Nachricht fehlgeschlagen', ['error' => $e->getMessage()]);
+
+            return false;
+        }
     }
 
     /** Ist ueberhaupt ein Ansageweg eingerichtet? Nur fuer die Anzeige. */
     public function available(array $profile, array $auto): bool
+    {
+        if (self::webhookValid((string) ($auto['discord_webhook'] ?? ''))) {
+            return true;
+        }
+
+        return $this->inGame($profile, $auto);
+    }
+
+    /** Kann das Plugin im Spiel selbst etwas sagen? */
+    public function inGame(array $profile, array $auto): bool
     {
         $messaging = (array) ($profile['messaging'] ?? []);
 
