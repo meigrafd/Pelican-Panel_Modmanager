@@ -61,9 +61,8 @@ return [
         'watch_both' => 'Mods und Spiel-Updates',
         'watch_mods' => 'Nur Mods',
         'watch_game' => 'Nur Spiel-Updates',
-        'wait_empty' => 'Neustart erst, wenn der Server leer ist – spaetestens nach (Minuten)',
-        'wait_empty_off' => 'Aus, nach der Vorwarnzeit neu starten',
-        'wait_empty_hint' => 'Wer schon spielt, merkt vom Update nichts; nur wer neu verbinden will, kommt bis zum Neustart nicht rein. Braucht die Spielerzahl (RCON oder Query-Port, siehe Ansagen). Ist sie unbekannt, wird bis zur Frist gewartet. Die Vorwarnung im Spiel kommt dann so viele Minuten vor der Frist, wie oben eingestellt.',
+        'wait_empty' => 'Neustart nur, wenn der Server leer ist',
+        'wait_empty_hint' => 'Solange jemand spielt, wird nicht neu gestartet, auch nicht nach Stunden. Wer schon drin ist, merkt vom Update nichts; nur wer neu verbinden will, kommt bis dahin nicht rein - die Discord-Nachricht sagt es ihm. Braucht die Spielerzahl ueber RCON oder den Query-Port ("Ansage testen" zeigt, ob sie ankommt). Ist sie unbekannt, wird ebenfalls nicht neu gestartet. Im Spiel wird nicht gewarnt, neu gestartet wird ja erst, wenn niemand mehr da ist.',
 
         'msg_heading' => 'Ansagen – damit die Spieler die Warnung sehen',
         'msg_none' => 'Fuer dieses Spiel ist kein Ansageweg im Spiel hinterlegt. Der Neustart laeuft trotzdem, nur still. Was bleibt, ist Discord (unten). Wer einen Weg im Spiel kennt (ein RCON-Mod, ein Konsolenbefehl), traegt ihn im Profil in der Konfigurationsdatei ein.',

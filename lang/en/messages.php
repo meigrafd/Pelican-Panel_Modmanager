@@ -61,9 +61,8 @@ return [
         'watch_both' => 'Mods and game updates',
         'watch_mods' => 'Mods only',
         'watch_game' => 'Game updates only',
-        'wait_empty' => 'Restart only once the server is empty – at the latest after (minutes)',
-        'wait_empty_off' => 'Off, restart after the warning time',
-        'wait_empty_hint' => 'Anyone already playing does not notice the update; only new connections fail until the restart. Needs the player count (RCON or query port, see announcements). If it is unknown, the plugin waits until the deadline. The in-game warning then comes as many minutes before the deadline as set above.',
+        'wait_empty' => 'Restart only once the server is empty',
+        'wait_empty_hint' => 'While anyone is playing, the server is not restarted, not even after hours. Players already on the server notice nothing; only new connections fail until then - the Discord message tells them. Needs the player count via RCON or the query port ("Test announcement" shows whether it arrives). If it is unknown, there is no restart either. There is no in-game warning, since the restart only happens once nobody is there.',
 
         'msg_heading' => 'Announcements - so players see the warning',
         'msg_none' => 'This game has no in-game announcement channel on record. The restart still runs, just silently. Discord (below) remains. If you know an in-game way (an RCON mod, a console command), add it to the profile in the configuration file.',

@@ -1,5 +1,21 @@
 # Änderungen
 
+## 0.6.9
+
+- **„Neustart nur, wenn der Server leer ist“ ist jetzt ein Schalter, ohne
+  Frist.** Solange jemand spielt, wird nicht neu gestartet, auch nicht nach
+  Stunden. In 0.6.8 erzwang eine Frist den Neustart trotz Spielern; die gibt
+  es nicht mehr.
+- Eine unbekannte Spielerzahl zählt weiter als „jemand ist da“. Im
+  Wartemodus heißt das: ohne Spielerzahl über RCON oder den Query-Port gibt
+  es keinen Neustart. Die Statuszeile sagt das.
+- Gezählt wird bis unmittelbar vor dem Neustart. Kommt in der Minute fürs
+  Backup jemand dazu, geht es zurück ins Warten.
+- Im Wartemodus gibt es keine Warnung im Spiel mehr; neu gestartet wird erst,
+  wenn niemand mehr da ist. Discord meldet „sobald niemand mehr spielt“.
+- Wer in 0.6.8 eine Frist eingestellt hatte, hat den Schalter jetzt an. Ein
+  laufender Wartezustand aus 0.6.8 wird übernommen, aber nicht mehr erzwungen.
+
 ## 0.6.8
 
 - **Hängendes Steam-Update wird selbst repariert.** SteamCMD merkt sich ein

@@ -46,11 +46,12 @@ use Illuminate\Support\Facades\Log;
  * Was am jeweiligen Spiel anders ist, steht im Spielprofil. Diese Klasse kennt
  * kein Spiel beim Namen.
  *
- * **Warten, bis der Server leer ist.** Optional (`wait_empty_minutes`). Dann
- * startet der Server erst neu, wenn niemand mehr spielt, spaetestens nach der
- * Frist. Wer schon drin ist, merkt vom Update nichts; nur wer neu verbinden
- * will, kommt bis dahin nicht rein - und genau den erreicht die
- * Discord-Nachricht.
+ * **Warten, bis der Server leer ist.** Optional (`wait_empty`). Dann startet
+ * der Server erst neu, wenn niemand mehr spielt - ohne Frist. Solange jemand
+ * da ist, auch nach Stunden, gibt es keinen Neustart; eine unbekannte
+ * Spielerzahl zaehlt als "jemand da". Wer schon drin ist, merkt vom Update
+ * nichts; nur wer neu verbinden will, kommt bis dahin nicht rein - und genau
+ * den erreicht die Discord-Nachricht.
  *
  * **Haengendes appmanifest.** SteamCMD merkt sich ein gescheitertes Update in
  * der appmanifest-Datei (StateFlags 6) und bricht danach bei jedem Start
@@ -235,12 +236,10 @@ class AutoUpdateService
         $players = $this->messenger->players($server, $profile, $auto);
         // null heisst "unbekannt", und unbekannt wird wie "es ist jemand da"
         // behandelt.
-        $waitEmpty = $players !== 0 && (int) $auto['wait_empty_minutes'] > 0;
-        $warnMinutes = match (true) {
-            $players === 0 => 0,
-            $waitEmpty => (int) $auto['wait_empty_minutes'],
-            default => (int) $auto['warn_minutes'],
-        };
+        $waitEmpty = $players !== 0 && (bool) $auto['wait_empty'];
+        // Im Wartemodus gibt es keine Frist und damit keine Uhrzeit fuer den
+        // Neustart; restart_at ist dort bedeutungslos.
+        $warnMinutes = ($players === 0 || $waitEmpty) ? 0 : (int) $auto['warn_minutes'];
 
         $run = [
             'phase' => 'warning',
@@ -271,8 +270,8 @@ class AutoUpdateService
             $run['backup_id'] = $this->startBackup($server, 'Auto-Update ' . $found['reason']);
         }
 
-        // Im Spiel wird beim Warten erst kurz vor der Frist gewarnt (siehe
-        // duringWarning) - "Neustart in 180 Minuten" haelt niemand im Kopf.
+        // Im Wartemodus wird im Spiel gar nicht gewarnt: neu gestartet wird
+        // erst, wenn niemand mehr da ist, der die Warnung lesen koennte.
         if ($warnMinutes > 0 && !$waitEmpty) {
             $run['warned'] = $this->announce($server, $profile, $auto, $auto['msg_warn'], $found['reason'], $warnMinutes, $warnMinutes * 60);
             $run['announced'][] = $warnMinutes;
@@ -296,45 +295,47 @@ class AutoUpdateService
         $now = now()->timestamp;
         $left = (int) $run['restart_at'] - $now;
 
-        if (!empty($run['wait_empty']) && empty($run['go'])) {
-            if ($left > 30) {
-                $players = $this->messenger->players($server, $profile, $auto);
-                if ($players === 0) {
-                    // Niemand mehr da: jetzt, statt bis zur Frist zu warten.
-                    $run['go'] = 'empty';
-                    $run['players_at_start'] = 0;
-                    $run['restart_at'] = $now;
-                    $run['note'] = 'Der Server ist leer, Neustart jetzt.';
-                    $left = 0;
-                } else {
-                    // Die normale Vorwarnung, gerechnet ab der Frist.
-                    $warn = (int) $auto['warn_minutes'];
-                    if ($warn > 0 && $left <= $warn * 60 + 30 && !in_array('deadline', $run['announced'] ?? [], true)) {
-                        $minutes = max(1, (int) ceil($left / 60));
-                        $warned = $this->announce($server, $profile, $auto, $auto['msg_warn'], (string) ($run['reason'] ?? ''), $minutes, $minutes * 60);
-                        $run['warned'] = ($run['warned'] ?? false) || $warned;
-                        $run['announced'][] = 'deadline';
-                    }
-                    $run['players_at_start'] = $players;
-                    $run['note'] = ($players === null ? 'Spielerzahl unbekannt' : $players . ' Spieler online')
-                        . '. Neustart, sobald der Server leer ist, spaetestens ' . $this->clock((int) $run['restart_at']) . '.';
-                    $this->save($server, $state, $run);
+        // Wartemodus: kein Neustart, solange jemand spielt - ohne Frist. Gezaehlt
+        // wird bei jedem Tick bis unmittelbar vor dem Neustart; wer in der
+        // Minute fuers Backup dazukommt, haelt den Neustart wieder an. Ein
+        // Zustand aus 0.6.8 mit erreichter Frist ('go' => 'deadline') landet
+        // hier genauso: er wird nicht mehr erzwungen.
+        if (!empty($run['wait_empty'])) {
+            $players = $this->messenger->players($server, $profile, $auto);
+            if ($players !== 0) {
+                if (!empty($run['go'])) {
+                    // Jemand ist (wieder) da. Das Backup von eben sichert einen
+                    // Stand, der beim spaeteren Neustart veraltet waere.
+                    unset($run['go'], $run['backup_requested'], $run['backup_id']);
                 }
-            } else {
-                $run['go'] = 'deadline';
+                $run['players_at_start'] = $players;
+                $run['note'] = $players === null
+                    ? 'Spielerzahl unbekannt, der Neustart wartet. Ohne Spielerzahl (RCON oder Query-Port) gibt es im Wartemodus keinen Neustart.'
+                    : $players . ' Spieler online. Neustart, sobald der Server leer ist.';
+                $this->save($server, $state, $run);
+
+                return;
             }
 
-            // Jetzt erst sichern, siehe whenIdle.
-            if (!empty($run['go']) && $auto['backup'] && empty($run['backup_requested'])) {
-                $run['backup_requested'] = true;
-                $this->messenger->save($server, $profile, $auto);
-                $run['backup_id'] = $this->startBackup($server, 'Auto-Update ' . ($run['reason'] ?? ''));
-                $run['started_at'] = $now;
-                if ($run['backup_id'] !== null) {
-                    $run['restart_at'] = $now + 60;
-                    $this->save($server, $state, $run);
+            if (empty($run['go'])) {
+                $run['go'] = 'empty';
+                $run['players_at_start'] = 0;
+                $run['restart_at'] = $now;
+                $run['note'] = 'Der Server ist leer, Neustart jetzt.';
+                $left = 0;
 
-                    return;
+                // Jetzt erst sichern, siehe whenIdle.
+                if ($auto['backup'] && empty($run['backup_requested'])) {
+                    $run['backup_requested'] = true;
+                    $this->messenger->save($server, $profile, $auto);
+                    $run['backup_id'] = $this->startBackup($server, 'Auto-Update ' . ($run['reason'] ?? ''));
+                    $run['started_at'] = $now;
+                    if ($run['backup_id'] !== null) {
+                        $run['restart_at'] = $now + 60;
+                        $this->save($server, $state, $run);
+
+                        return;
+                    }
                 }
             }
         }
@@ -1181,13 +1182,14 @@ class AutoUpdateService
     /** Text fuer :when in der Discord-Nachricht. */
     private function when(int $minutes, int $at, bool $waitEmpty): string
     {
+        if ($waitEmpty) {
+            return 'sobald niemand mehr spielt';
+        }
         if ($minutes <= 0) {
             return 'jetzt';
         }
 
-        return $waitEmpty
-            ? 'sobald niemand mehr spielt, spaetestens um ' . $this->clock($at)
-            : 'um ' . $this->clock($at) . ' (in ' . $minutes . ' Minuten)';
+        return 'um ' . $this->clock($at) . ' (in ' . $minutes . ' Minuten)';
     }
 
     /**

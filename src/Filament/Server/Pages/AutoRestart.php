@@ -374,15 +374,8 @@ class AutoRestart extends Page
                     ->selectablePlaceholder(false)
                     ->disabled(!$writable),
 
-                Select::make('wait_empty_minutes')
+                Toggle::make('wait_empty')
                     ->label(trans('mar::messages.settings.wait_empty'))
-                    ->options([
-                        0 => trans('mar::messages.settings.wait_empty_off'),
-                        60 => '60', 120 => '120',
-                        180 => trans('mar::messages.settings.recommended', ['n' => 180]),
-                        240 => '240', 360 => '360', 720 => '720',
-                    ])
-                    ->selectablePlaceholder(false)
                     ->helperText(trans('mar::messages.settings.wait_empty_hint'))
                     ->disabled(!$writable),
 

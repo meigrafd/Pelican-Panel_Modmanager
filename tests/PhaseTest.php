@@ -570,51 +570,83 @@ echo "\n=== Warten, bis der Server leer ist\n";
 resetAll();
 GameBuild::$result = ['outdated' => true, 'installed' => 100, 'latest' => 200];
 Messenger::$players = 2;
-$s = store(['wait_empty_minutes' => 180, 'warn_minutes' => 5, 'discord_webhook' => 'https://discord.com/api/webhooks/1/x']);
+$s = store(['wait_empty' => true, 'warn_minutes' => 5, 'discord_webhook' => 'https://discord.com/api/webhooks/1/x']);
 $svc = service($s);
 $svc->tickServer($ens);
 ok('Spieler online: Phase warning mit Wartemodus', ($s->state['run']['phase'] ?? '') === 'warning'
     && ($s->state['run']['wait_empty'] ?? false) === true);
-ok('  Frist drei Stunden', abs(($s->state['run']['restart_at'] ?? 0) - (time() + 180 * 60)) < 5);
 ok('  kein Neustart', PowerService::$sent === []);
-ok('  Discord: Update gefunden, Neustart wenn leer', count(Messenger::$discord) === 1
-    && str_contains(Messenger::$discord[0], 'sobald niemand mehr spielt'), implode(' | ', Messenger::$discord));
+ok('  Discord: Neustart, sobald niemand mehr spielt, ohne Uhrzeit', count(Messenger::$discord) === 1
+    && str_contains(Messenger::$discord[0], 'sobald niemand mehr spielt')
+    && !str_contains(Messenger::$discord[0], 'spaetestens'), implode(' | ', Messenger::$discord));
 ok('  Platzhalter :server ersetzt', str_contains(Messenger::$discord[0] ?? '', 'Testserver'));
-ok('  im Spiel noch keine Warnung (kommt kurz vor der Frist)', Messenger::$said === []);
+ok('  im Spiel keine Warnung', Messenger::$said === []);
 ok('  gilt als gewarnt (Discord)', ($s->state['run']['warned'] ?? false) === true);
 
 $svc->tickServer($ens);
 ok('weiter Spieler da: kein Neustart', PowerService::$sent === []);
 ok('  Status nennt die Spielerzahl', str_contains($s->state['run']['note'] ?? '', '2 Spieler'), $s->state['run']['note'] ?? '');
 
+// Der Kern der Sache: auch nach vielen Stunden kein erzwungener Neustart.
+$s->state['run']['restart_at'] = time() - 12 * 3600;
+$s->state['run']['started_at'] = time() - 12 * 3600;
+$svc->tickServer($ens);
+$svc->tickServer($ens);
+ok('nach zwoelf Stunden mit Spielern: immer noch kein Neustart', PowerService::$sent === []
+    && ($s->state['run']['phase'] ?? '') === 'warning');
+ok('  und keine Warnung im Spiel', Messenger::$said === []);
+
 Messenger::$players = 0;
 $svc->tickServer($ens);
-ok('Server leer: Neustart sofort, lange vor der Frist', PowerService::$sent === ['restart']);
+ok('Server leer: Neustart sofort', PowerService::$sent === ['restart']);
 ok('  Historie: 0 Spieler beim Neustart', ($s->state['history'][0]['players'] ?? -1) === 0);
-ok('  keine Ein-Minuten-Warnung an einen leeren Server', Messenger::$said === []);
+ok('  keine Ein-Minuten-Warnung, kein Countdown an einen leeren Server', Messenger::$said === []);
 
 resetAll();
-// Spielerzahl unbekannt (Abfrage kommt nicht durch): wartet bis zur Frist.
+// Spielerzahl unbekannt: zaehlt als "jemand da", also nie ein Neustart.
 GameBuild::$result = ['outdated' => true, 'installed' => 100, 'latest' => 200];
 Messenger::$players = null;
-$s = store(['wait_empty_minutes' => 180, 'warn_minutes' => 5]);
+$s = store(['wait_empty' => true, 'warn_minutes' => 5]);
 $svc = service($s);
 $svc->tickServer($ens);
+$s->state['run']['restart_at'] = time() - 12 * 3600;
 $svc->tickServer($ens);
-ok('Spielerzahl unbekannt: kein Neustart vor der Frist', PowerService::$sent === []);
-ok('  Status sagt "unbekannt"', str_contains($s->state['run']['note'] ?? '', 'unbekannt'));
-$s->state['run']['restart_at'] = time() + 3 * 60;
 $svc->tickServer($ens);
-ok('  Vorwarnung im Spiel ab warn_minutes vor der Frist', in_array('deadline', $s->state['run']['announced'] ?? [], true));
-$s->state['run']['restart_at'] = time() - 1;
+ok('Spielerzahl unbekannt: kein Neustart, auch nach Stunden', PowerService::$sent === []);
+ok('  Status sagt "unbekannt" und warum nichts passiert', str_contains($s->state['run']['note'] ?? '', 'unbekannt')
+    && str_contains($s->state['run']['note'] ?? '', 'Query-Port'), $s->state['run']['note'] ?? '');
+
+resetAll();
+// Jemand kommt in der Minute fuers Backup dazu: zurueck ins Warten, das
+// Backup von eben gilt nicht mehr.
+GameBuild::$result = ['outdated' => true, 'installed' => 100, 'latest' => 200];
+Messenger::$players = 1;
+$s = store(['wait_empty' => true], ['phase' => 'warning', 'wait_empty' => true, 'go' => 'empty',
+    'backup_requested' => true, 'backup_id' => 5, 'reason' => 'Spiel', 'restart_at' => time() - 5,
+    'started_at' => time() - 70, 'announced' => [], 'build_before' => 100]);
+$svc = service($s);
 $svc->tickServer($ens);
-ok('  Frist erreicht: Neustart', PowerService::$sent === ['restart']);
+ok('Spieler kommt waehrend des Backups: kein Neustart', PowerService::$sent === []);
+ok('  zurueck ins Warten, Backup-Marke entfernt', !isset($s->state['run']['go'])
+    && !isset($s->state['run']['backup_requested']) && !isset($s->state['run']['backup_id']));
+
+resetAll();
+// Zustand aus 0.6.8: Frist erreicht ('go' => 'deadline'), Spieler da. Wird
+// nicht mehr erzwungen.
+GameBuild::$result = ['outdated' => true, 'installed' => 100, 'latest' => 200];
+Messenger::$players = 3;
+$s = store(['wait_empty' => true], ['phase' => 'warning', 'wait_empty' => true, 'go' => 'deadline',
+    'reason' => 'Spiel', 'restart_at' => time() - 600, 'started_at' => time() - 7200, 'announced' => [],
+    'build_before' => 100]);
+$svc = service($s);
+$svc->tickServer($ens);
+ok('alte Frist aus 0.6.8 mit Spielern: kein Neustart', PowerService::$sent === [] && !isset($s->state['run']['go']));
 
 resetAll();
 // Niemand online, schon bei der Erkennung: sofort, Discord sagt "jetzt".
 GameBuild::$result = ['outdated' => true, 'installed' => 100, 'latest' => 200];
 Messenger::$players = 0;
-$s = store(['wait_empty_minutes' => 180, 'discord_webhook' => 'https://discord.com/api/webhooks/1/x']);
+$s = store(['wait_empty' => true, 'discord_webhook' => 'https://discord.com/api/webhooks/1/x']);
 $svc = service($s);
 $svc->tickServer($ens);
 ok('niemand online: kein Wartemodus', ($s->state['run']['wait_empty'] ?? true) === false);
@@ -690,10 +722,11 @@ $read2 = function (array $auto): array {
 
     return $m->invoke($store, $auto);
 };
-ok('Frist wird auf 720 Minuten begrenzt', $read2(['wait_empty_minutes' => 99999])['wait_empty_minutes'] === 720);
-ok('Frist darf nicht negativ sein', $read2(['wait_empty_minutes' => -5])['wait_empty_minutes'] === 0);
+ok('Frist aus 0.6.8 wird zum eingeschalteten Schalter', $read2(['wait_empty_minutes' => 180])['wait_empty'] === true);
+ok('  Frist 0 aus 0.6.8 bleibt aus', $read2(['wait_empty_minutes' => 0])['wait_empty'] === false);
+ok('  ausdruecklicher Schalter schlaegt die alte Frist', $read2(['wait_empty' => false, 'wait_empty_minutes' => 180])['wait_empty'] === false);
 ok('Query-Port wird begrenzt', $read2(['query_port' => 70000])['query_port'] === 65535);
-ok('Vorgabe Wartemodus: aus', StateStore::AUTO_DEFAULTS['wait_empty_minutes'] === 0);
+ok('Vorgabe Wartemodus: aus', StateStore::AUTO_DEFAULTS['wait_empty'] === false);
 
 echo "\n";
 printf("ERGEBNIS: %d bestanden, %d fehlgeschlagen\n", $passed, $failed);

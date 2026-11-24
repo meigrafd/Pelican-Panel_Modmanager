@@ -64,11 +64,10 @@ class StateStore
         // Wo die Ansage im Spiel erscheint, wenn das Profil zwei Befehle
         // kennt (Valheim: Bildschirmmitte und Chat). Siehe ANNOUNCE_VIA.
         'announce_via' => 'both',
-        // Neustart erst, wenn niemand mehr spielt - spaetestens nach so vielen
-        // Minuten. 0 heisst aus: dann gilt die normale Vorwarnzeit. Braucht
-        // eine Spielerzahl (RCON oder Query-Port); ohne die wird bis zur Frist
-        // gewartet.
-        'wait_empty_minutes' => 0,
+        // Neustart nur, wenn niemand spielt. Ohne Frist: solange jemand da
+        // ist, wird nicht neu gestartet, auch nicht nach Stunden. Eine
+        // unbekannte Spielerzahl zaehlt als "jemand da".
+        'wait_empty' => false,
         // Steam-Serverabfrage (A2S) fuer die Spielerzahl. Leer bzw. 0 heisst:
         // aus Allocation und Egg ableiten.
         'query_host' => '',
@@ -98,7 +97,6 @@ class StateStore
         'backup_wait_seconds' => 0,
         'cooldown_minutes' => 0,
         'rcon_port' => 0,
-        'wait_empty_minutes' => 0,
         'query_port' => 0,
     ];
 
@@ -109,7 +107,6 @@ class StateStore
         'backup_wait_seconds' => 900,
         'cooldown_minutes' => 1440,
         'rcon_port' => 65535,
-        'wait_empty_minutes' => 720,
         'query_port' => 65535,
     ];
 
@@ -252,6 +249,13 @@ class StateStore
 
         if (!in_array($out['announce_via'], self::ANNOUNCE_VIA, true)) {
             $out['announce_via'] = 'both';
+        }
+
+        // Bis 0.6.8 hiess das wait_empty_minutes und hatte eine Frist. Wer
+        // dort eine eingestellt hatte, wollte warten - das bleibt so.
+        if (!array_key_exists('wait_empty', $stored)
+            && is_numeric($stored['wait_empty_minutes'] ?? null) && (int) $stored['wait_empty_minutes'] > 0) {
+            $out['wait_empty'] = true;
         }
 
         return $out;
